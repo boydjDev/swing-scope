@@ -13,6 +13,9 @@ src-tauri/target/
 *.db
 *.duckdb
 
+# testing csvs
+.csv
+
 # OS
 .DS_Store
 Thumbs.db
