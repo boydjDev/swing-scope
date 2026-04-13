@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import './App.css'
@@ -7,15 +7,24 @@ import type { Session, Shot, ImportSummary } from './types'
 import Header from './components/Header'
 import ImportSummaryPanel from './components/ImportSummary'
 import SessionList from './components/SessionList'
-import ShotTable from './components/ShotTable'
+import ShotScatterPlot from './components/ShotScatterPlot'
+
+// "04/01/2026 5:55 PM" → "2026-04-01" for date input comparison
+function sessionDateToISO(dateStr: string): string {
+  const [mm, dd, yyyy] = dateStr.split(' ')[0].split('/')
+  return `${yyyy}-${mm}-${dd}`
+}
 
 function App() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [selected, setSelected] = useState<Session | null>(null)
+  const [allSelected, setAllSelected] = useState(false)
   const [shots, setShots] = useState<Shot[]>([])
   const [loadingShots, setLoadingShots] = useState(false)
   const [summary, setSummary] = useState<ImportSummary | null>(null)
   const [importing, setImporting] = useState(false)
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
 
   useEffect(() => {
     loadSessions()
@@ -30,7 +39,21 @@ function App() {
     }
   }
 
+  useEffect(() => {
+    if (allSelected) handleSelectAll()
+  }, [fromDate, toDate])
+
+  const filteredSessions = useMemo(() => {
+    return sessions.filter(s => {
+      const iso = sessionDateToISO(s.date)
+      if (fromDate && iso < fromDate) return false
+      if (toDate && iso > toDate) return false
+      return true
+    })
+  }, [sessions, fromDate, toDate])
+
   async function handleSelectSession(session: Session) {
+    setAllSelected(false)
     setSelected(session)
     setLoadingShots(true)
     try {
@@ -41,11 +64,26 @@ function App() {
     }
   }
 
+  async function handleSelectAll() {
+    setSelected(null)
+    setAllSelected(true)
+    setLoadingShots(true)
+    try {
+      const results = await Promise.all(
+        filteredSessions.map(s => invoke<Shot[]>('get_shots', { sessionId: s.id }))
+      )
+      setShots(results.flat())
+    } finally {
+      setLoadingShots(false)
+    }
+  }
+
   async function handleWipe() {
     await invoke('wipe_db')
     setSummary(null)
     setSessions([])
     setSelected(null)
+    setAllSelected(false)
     setShots([])
   }
 
@@ -73,14 +111,27 @@ function App() {
     <div id="app">
       <Header importing={importing} onImport={handleImport} onWipe={handleWipe} />
 
-      {summary && <ImportSummaryPanel summary={summary} />}
+      {summary && <ImportSummaryPanel summary={summary} onDismiss={() => setSummary(null)} />}
 
       <div className="workspace">
-        <SessionList sessions={sessions} selected={selected} onSelect={handleSelectSession} />
+        <SessionList
+          sessions={filteredSessions}
+          selected={selected}
+          allSelected={allSelected}
+          fromDate={fromDate}
+          toDate={toDate}
+          onFromDate={setFromDate}
+          onToDate={setToDate}
+          onSelect={handleSelectSession}
+          onSelectAll={handleSelectAll}
+        />
 
         <main className="shot-view">
-          <ShotTable
+          <ShotScatterPlot
             selected={selected}
+            allSelected={allSelected}
+            fromDate={fromDate}
+            toDate={toDate}
             shots={shots}
             loading={loadingShots}
             sessionCount={sessions.length}

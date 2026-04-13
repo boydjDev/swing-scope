@@ -2,11 +2,13 @@ import type { ImportSummary as ImportSummaryType } from '../types'
 
 interface ImportSummaryProps {
   summary: ImportSummaryType
+  onDismiss: () => void
 }
 
-export default function ImportSummary({ summary }: ImportSummaryProps) {
+export default function ImportSummary({ summary, onDismiss }: ImportSummaryProps) {
   return (
     <div className="summary">
+      <button className="summary-dismiss" onClick={onDismiss} aria-label="Dismiss">✕</button>
       <p>
         {summary.imported > 0 && <span className="ok">{summary.imported} imported</span>}
         {summary.skipped > 0 && <span className="warn">{summary.skipped} skipped</span>}
