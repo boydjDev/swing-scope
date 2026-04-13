@@ -193,67 +193,119 @@ fn parse_rapsodo_csv(path: &str) -> std::result::Result<(String, String, Vec<Sho
     Ok((player_name, date, shots))
 }
 
-#[tauri::command]
-fn import_session(app: tauri::AppHandle, file_path: String) -> std::result::Result<String, String> {
-    let filename = std::path::Path::new(&file_path)
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ImportStatus {
+    Imported,
+    Skipped,
+    Error,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImportResult {
+    pub filename: String,
+    pub status: ImportStatus,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImportSummary {
+    pub results: Vec<ImportResult>,
+    pub imported: usize,
+    pub skipped: usize,
+    pub errors: usize,
+}
+
+fn import_one(conn: &Connection, file_path: &str) -> ImportResult {
+    let filename = std::path::Path::new(file_path)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("")
         .to_string();
 
-    let (player_name, date, shots) = parse_rapsodo_csv(&file_path)?;
+    let (player_name, date, shots) = match parse_rapsodo_csv(file_path) {
+        Ok(v) => v,
+        Err(e) => return ImportResult { filename, status: ImportStatus::Error, message: e },
+    };
 
-    let path = db_path(&app);
-    let conn = Connection::open(&path).map_err(|e| e.to_string())?;
-
-    // Check for duplicate session
-    let exists: bool = conn.query_row(
+    let exists: bool = match conn.query_row(
         "SELECT COUNT(*) FROM sessions WHERE source_filename = ?1",
         [&filename],
         |row| row.get::<_, i64>(0),
-    ).map_err(|e| e.to_string())? > 0;
+    ) {
+        Ok(n) => n > 0,
+        Err(e) => return ImportResult { filename, status: ImportStatus::Error, message: e.to_string() },
+    };
 
     if exists {
-        return Err(format!("Session '{}' has already been imported", filename));
+        return ImportResult {
+            message: format!("'{}' already imported, skipped", filename),
+            filename,
+            status: ImportStatus::Skipped,
+        };
     }
 
-    // Insert session and shots in a transaction
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let result = (|| -> std::result::Result<usize, String> {
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
 
-    tx.execute(
-        "INSERT INTO sessions (player_name, date, source_filename) VALUES (?1, ?2, ?3)",
-        [&player_name, &date, &filename],
-    ).map_err(|e| e.to_string())?;
-
-    let session_id = tx.last_insert_rowid();
-
-    for shot in &shots {
         tx.execute(
-            "INSERT INTO shots (
-                session_id, club_type, club_brand, club_model,
-                carry_distance, total_distance, ball_speed, club_speed,
-                smash_factor, launch_angle, launch_direction, apex,
-                side_carry, descent_angle, attack_angle, club_path,
-                spin_rate, spin_axis, club_data_est
-            ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-                ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19
-            )",
-            rusqlite::params![
-                session_id,
-                shot.club_type, shot.club_brand, shot.club_model,
-                shot.carry_distance, shot.total_distance, shot.ball_speed,
-                shot.club_speed, shot.smash_factor, shot.launch_angle,
-                shot.launch_direction, shot.apex, shot.side_carry,
-                shot.descent_angle, shot.attack_angle, shot.club_path,
-                shot.spin_rate, shot.spin_axis, shot.club_data_est
-            ],
+            "INSERT INTO sessions (player_name, date, source_filename) VALUES (?1, ?2, ?3)",
+            [&player_name, &date, &filename],
         ).map_err(|e| e.to_string())?;
+
+        let session_id = tx.last_insert_rowid();
+
+        for shot in &shots {
+            tx.execute(
+                "INSERT INTO shots (
+                    session_id, club_type, club_brand, club_model,
+                    carry_distance, total_distance, ball_speed, club_speed,
+                    smash_factor, launch_angle, launch_direction, apex,
+                    side_carry, descent_angle, attack_angle, club_path,
+                    spin_rate, spin_axis, club_data_est
+                ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                    ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19
+                )",
+                rusqlite::params![
+                    session_id,
+                    shot.club_type, shot.club_brand, shot.club_model,
+                    shot.carry_distance, shot.total_distance, shot.ball_speed,
+                    shot.club_speed, shot.smash_factor, shot.launch_angle,
+                    shot.launch_direction, shot.apex, shot.side_carry,
+                    shot.descent_angle, shot.attack_angle, shot.club_path,
+                    shot.spin_rate, shot.spin_axis, shot.club_data_est
+                ],
+            ).map_err(|e| e.to_string())?;
+        }
+
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(shots.len())
+    })();
+
+    match result {
+        Ok(n) => ImportResult {
+            message: format!("Imported {} shots", n),
+            filename,
+            status: ImportStatus::Imported,
+        },
+        Err(e) => ImportResult { filename, status: ImportStatus::Error, message: e },
     }
+}
 
-    tx.commit().map_err(|e| e.to_string())?;
+#[tauri::command]
+fn import_sessions(app: tauri::AppHandle, file_paths: Vec<String>) -> std::result::Result<ImportSummary, String> {
+    let conn = Connection::open(db_path(&app)).map_err(|e| e.to_string())?;
 
-    Ok(format!("Imported {} shots from {}", shots.len(), filename))
+    let results: Vec<ImportResult> = file_paths.iter()
+        .map(|p| import_one(&conn, p))
+        .collect();
+
+    let imported = results.iter().filter(|r| r.status == ImportStatus::Imported).count();
+    let skipped  = results.iter().filter(|r| r.status == ImportStatus::Skipped).count();
+    let errors   = results.iter().filter(|r| r.status == ImportStatus::Error).count();
+
+    Ok(ImportSummary { results, imported, skipped, errors })
 }
 
 #[tauri::command]
@@ -320,6 +372,15 @@ fn get_shots(app: tauri::AppHandle, session_id: i64) -> std::result::Result<Vec<
     Ok(shots)
 }
 
+#[cfg(debug_assertions)]
+#[tauri::command]
+fn wipe_db(app: tauri::AppHandle) -> std::result::Result<(), String> {
+    let path = db_path(&app);
+    let conn = Connection::open(&path).map_err(|e| e.to_string())?;
+    conn.execute_batch("DELETE FROM shots; DELETE FROM sessions;")
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -339,7 +400,14 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![import_session, get_sessions, get_shots])
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            import_sessions,
+            get_sessions,
+            get_shots,
+            #[cfg(debug_assertions)]
+            wipe_db,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
