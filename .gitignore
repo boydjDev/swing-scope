@@ -14,7 +14,7 @@ src-tauri/target/
 *.duckdb
 
 # testing csvs
-.csv
+test_data/*.csv
 
 # OS
 .DS_Store
