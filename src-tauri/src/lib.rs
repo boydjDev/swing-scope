@@ -394,6 +394,9 @@ pub fn run() {
             }
 
             let path = db_path(app.handle());
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).expect("failed to create app data dir");
+            }
             let conn = Connection::open(&path)
                 .expect("failed to open database");
             init_db(&conn).expect("failed to initialize database");
