@@ -15,6 +15,7 @@ src-tauri/target/
 
 # testing data
 test_data/*
+*.csv
 
 # OS
 .DS_Store
