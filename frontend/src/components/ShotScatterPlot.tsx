@@ -23,6 +23,7 @@ interface ShotScatterPlotProps {
   shots: Shot[]
   loading: boolean
   sessionCount: number
+  theme: 'light' | 'dark'
 }
 
 const CLUB_ORDER = [
@@ -88,7 +89,7 @@ function avg(shots: PlotShot[], fn: (s: Shot) => number): number {
   return shots.reduce((sum, p) => sum + fn(p.shot), 0) / shots.length
 }
 
-export default function ShotScatterPlot({ selected, allSelected, fromDate, toDate, shots, loading, sessionCount }: ShotScatterPlotProps) {
+export default function ShotScatterPlot({ selected, allSelected, fromDate, toDate, shots, loading, sessionCount, theme }: ShotScatterPlotProps) {
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [minCarry, setMinCarry] = useState(0)
   const [maxCarry, setMaxCarry] = useState(300)
@@ -174,11 +175,15 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
   const borderColor = getCssVar('--border')
   const textColor   = getCssVar('--text')
 
+  ChartJS.defaults.color       = textColor
+  ChartJS.defaults.borderColor = borderColor
+
   const chartData = {
     datasets: clubTypes.map(club => ({
       label: club,
       data: hidden.has(club) ? [] : byClub[club].map(p => ({ x: p.x, y: p.y })),
       backgroundColor: colorMap[club] + 'cc',
+      borderWidth: 0,
       pointRadius: 5,
       pointHoverRadius: 7,
     })),
@@ -260,7 +265,7 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
             <div className="scatter-chart-wrap">
               <div className="scatter-title">Shot Dispersion</div>
               <div style={{ height: 750 }}>
-                <Scatter data={chartData} options={chartOptions} plugins={[refLinePlugin]} />
+                <Scatter key={theme} data={chartData} options={chartOptions} plugins={[refLinePlugin]} />
               </div>
               <div className="view-controls">
                 <span className="view-controls-label">View Controls</span>
