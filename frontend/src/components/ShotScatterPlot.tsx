@@ -1,18 +1,19 @@
 import { useMemo, useState } from 'react'
 import '../styles/ShotScatterPlot.css'
 import {
-  ResponsiveContainer,
-  ScatterChart,
-  Scatter,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  ReferenceLine,
-} from 'recharts'
+  Chart as ChartJS,
+  LinearScale,
+  PointElement,
+  Tooltip,
+  type Plugin,
+} from 'chart.js'
+import { Scatter } from 'react-chartjs-2'
 import type { Session, Shot } from '../types'
 import { parseSessionDate } from '../utils/parseSessionDate'
 import { formatClubType } from '../utils/formatClubType'
 import StatsTab, { type ClubStats } from './StatsTab'
+
+ChartJS.register(LinearScale, PointElement, Tooltip)
 
 interface ShotScatterPlotProps {
   selected: Session | null
@@ -38,7 +39,7 @@ const PALETTE = [
 ]
 
 const X_DOMAIN: [number, number] = [-75, 75]
-const X_TICKS = [-75, -50, -25, 0, 25, 50, 75]
+const MONO = 'ui-monospace, Consolas, monospace'
 
 function clubColor(clubType: string): string {
   const idx = CLUB_ORDER.indexOf(clubType)
@@ -48,10 +49,31 @@ function clubColor(clubType: string): string {
   return PALETTE[hash % PALETTE.length]
 }
 
+function getCssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+}
+
+const refLinePlugin: Plugin<'scatter'> = {
+  id: 'refLine',
+  afterDatasetsDraw(chart) {
+    const { ctx, scales } = chart
+    const x = scales.x.getPixelForValue(0)
+    const { top, bottom } = scales.y
+    ctx.save()
+    ctx.beginPath()
+    ctx.moveTo(x, top)
+    ctx.lineTo(x, bottom)
+    ctx.strokeStyle = getCssVar('--text-h') + '40'
+    ctx.setLineDash([5, 4])
+    ctx.lineWidth = 1
+    ctx.stroke()
+    ctx.restore()
+  },
+}
+
 interface PlotShot {
   x: number
   y: number
-  index: number
   shot: Shot
 }
 
@@ -89,9 +111,9 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
     ]
 
     const byClub: Record<string, PlotShot[]> = {}
-    shots.forEach((s, i) => {
+    shots.forEach(s => {
       if (!byClub[s.club_type]) byClub[s.club_type] = []
-      byClub[s.club_type].push({ x: s.side_carry, y: s.carry_distance, index: i, shot: s })
+      byClub[s.club_type].push({ x: s.side_carry, y: s.carry_distance, shot: s })
     })
 
     const colorMap: Record<string, string> = {}
@@ -138,9 +160,6 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
       })
   }, [clubTypes, byClub, hidden])
 
-  const yDomain: [number, number] = [minCarry, maxCarry]
-  const chartH = 750
-
   if (!selected && !allSelected) {
     return (
       <p className="empty">
@@ -151,6 +170,56 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
 
   if (loading) return <p className="empty">Loading…</p>
   if (shots.length === 0) return <p className="empty">No shots in this session.</p>
+
+  const borderColor = getCssVar('--border')
+  const textColor   = getCssVar('--text')
+
+  const chartData = {
+    datasets: clubTypes.map(club => ({
+      label: club,
+      data: hidden.has(club) ? [] : byClub[club].map(p => ({ x: p.x, y: p.y })),
+      backgroundColor: colorMap[club] + 'cc',
+      pointRadius: 5,
+      pointHoverRadius: 7,
+    })),
+  }
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false as const,
+    scales: {
+      x: {
+        type: 'linear' as const,
+        min: X_DOMAIN[0],
+        max: X_DOMAIN[1],
+        ticks: {
+          stepSize: 25,
+          color: textColor,
+          font: { family: MONO, size: 11 },
+        },
+        grid: { color: borderColor },
+        border: { color: borderColor },
+      },
+      y: {
+        type: 'linear' as const,
+        min: minCarry,
+        max: maxCarry,
+        ticks: {
+          count: 8,
+          color: textColor,
+          font: { family: MONO, size: 11 },
+        },
+        grid: { color: borderColor },
+        border: { color: borderColor },
+      },
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: { enabled: false },
+    },
+    events: [],
+  }
 
   return (
     <div className="scatter-wrap">
@@ -190,41 +259,9 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
 
             <div className="scatter-chart-wrap">
               <div className="scatter-title">Shot Dispersion</div>
-              <ResponsiveContainer width="100%" height={chartH}>
-              <ScatterChart
-                margin={{ top: 8, right: 12, bottom: 8, left: 8 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis
-                  type="number"
-                  dataKey="x"
-                  domain={X_DOMAIN}
-                  ticks={X_TICKS}
-                  tick={{ fontSize: 11, fill: 'var(--text)', fontFamily: 'var(--mono)' }}
-                  stroke="var(--border)"
-                />
-                <YAxis
-                  type="number"
-                  dataKey="y"
-                  domain={yDomain}
-                  tickCount={8}
-                  tick={{ fontSize: 11, fill: 'var(--text)', fontFamily: 'var(--mono)' }}
-                  stroke="var(--border)"
-                  width={32}
-                />
-                <ReferenceLine x={0} stroke="var(--text)" strokeOpacity={0.25} strokeDasharray="5 4" />
-                {clubTypes.map(club => (
-                  <Scatter
-                    key={club}
-                    name={club}
-                    data={hidden.has(club) ? [] : byClub[club]}
-                    fill={colorMap[club]}
-                    fillOpacity={0.8}
-                    r={5}
-                  />
-                ))}
-              </ScatterChart>
-              </ResponsiveContainer>
+              <div style={{ height: 750 }}>
+                <Scatter data={chartData} options={chartOptions} plugins={[refLinePlugin]} />
+              </div>
               <div className="view-controls">
                 <span className="view-controls-label">View Controls</span>
                 <label className="carry-control">
@@ -244,7 +281,7 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
 
         {/* ── Right: stats panel ── */}
         <div className="stats-panel">
-<StatsTab stats={stats} colorMap={colorMap} scaleMin={scaleMin} scaleMax={scaleMax} />
+          <StatsTab stats={stats} colorMap={colorMap} scaleMin={scaleMin} scaleMax={scaleMax} />
         </div>
 
       </div>
