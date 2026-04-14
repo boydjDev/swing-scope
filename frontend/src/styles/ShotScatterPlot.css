@@ -37,11 +37,12 @@
   min-height: 0;
   display: flex;
   flex-direction: row;
+  overflow-x: auto;
 }
 
 .scatter-left {
   flex: 6;
-  min-width: 0;
+  min-width: 600px;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -51,17 +52,17 @@
 .scatter-scroll {
   flex: 1;
   min-height: 0;
-  overflow: auto;
   padding: 8px 8px 8px 0;
   display: flex;
   flex-direction: row;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 0;
 }
 
 .scatter-chart-wrap {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -128,11 +129,12 @@
 
 .club-legend {
   flex-shrink: 0;
+  width: 200px;
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 16px 16px 16px 12px;
-  align-self: flex-start;
+  overflow-y: auto;
 }
 
 .club-legend-actions {

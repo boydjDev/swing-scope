@@ -264,7 +264,7 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
 
             <div className="scatter-chart-wrap">
               <div className="scatter-title">Shot Dispersion</div>
-              <div style={{ height: 750 }}>
+              <div style={{ flex: 1, minHeight: 400 }}>
                 <Scatter key={theme} data={chartData} options={chartOptions} plugins={[refLinePlugin]} />
               </div>
               <div className="view-controls">
