@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
-import './App.css'
+import './styles/global.css'
+import './styles/Modal.css'
 
 import type { Session, Shot, ImportSummary } from './types'
 import Header from './components/Header'
@@ -25,15 +26,19 @@ function App() {
   const [importing, setImporting] = useState(false)
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<Session | null>(null)
 
   useEffect(() => {
-    loadSessions()
+    loadSessions(true)
   }, [])
 
-  async function loadSessions() {
+  async function loadSessions(autoSelect = false) {
     try {
       const result = await invoke<Session[]>('get_sessions')
       setSessions(result)
+      if (autoSelect && result.length > 0) {
+        handleSelectSession(result[0])
+      }
     } catch (e) {
       console.error('Failed to load sessions:', e)
     }
@@ -78,6 +83,15 @@ function App() {
     }
   }
 
+  async function handleDelete(session: Session) {
+    await invoke('delete_session', { sessionId: session.id })
+    if (selected?.id === session.id) {
+      setSelected(null)
+      setShots([])
+    }
+    await loadSessions()
+  }
+
   async function handleWipe() {
     await invoke('wipe_db')
     setSummary(null)
@@ -113,6 +127,21 @@ function App() {
 
       {summary && <ImportSummaryPanel summary={summary} onDismiss={() => setSummary(null)} />}
 
+      {deleteTarget && (
+        <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <p className="modal-title">Delete Session</p>
+            <p className="modal-body">
+              Are you sure you want to delete <strong>{deleteTarget.player_name}</strong>'s session on <strong>{deleteTarget.date}</strong>? This cannot be undone.
+            </p>
+            <div className="modal-actions">
+              <button className="modal-cancel" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button className="modal-confirm" onClick={() => { handleDelete(deleteTarget); setDeleteTarget(null) }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="workspace">
         <SessionList
           sessions={filteredSessions}
@@ -124,6 +153,7 @@ function App() {
           onToDate={setToDate}
           onSelect={handleSelectSession}
           onSelectAll={handleSelectAll}
+          onDelete={setDeleteTarget}
         />
 
         <main className="shot-view">

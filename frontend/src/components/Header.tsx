@@ -1,3 +1,5 @@
+import '../styles/Header.css'
+
 interface HeaderProps {
   importing: boolean
   onImport: () => void
@@ -7,7 +9,7 @@ interface HeaderProps {
 export default function Header({ importing, onImport, onWipe }: HeaderProps) {
   return (
     <header>
-      <h1>SwingScope</h1>
+      <h1>SwingScope — Session Analyzer</h1>
       <div className="header-actions">
         {import.meta.env.DEV && (
           <button className="wipe" onClick={onWipe}>Wipe DB</button>

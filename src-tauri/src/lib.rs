@@ -91,12 +91,12 @@ fn parse_rapsodo_csv(path: &str) -> std::result::Result<(String, String, Vec<Sho
 
     // Validate first row is a Rapsodo header
     let first_row = rows[0][0].trim().to_string();
-    if !first_row.starts_with("Rapsodo MLM2PRO:") {
+    if !first_row.starts_with("Rapsodo") {
         return Err("Not a valid Rapsodo CSV file".to_string());
     }
 
     // Parse player name and date from first row
-    // Format: "Rapsodo MLM2PRO: firstName lastName - date time"
+    // Format: "Rapsodo <device>: firstName lastName - date time"
     let meta: Vec<&str> = first_row.splitn(2, ':').collect();
     let after_colon = meta.get(1).unwrap_or(&"").trim();
     let parts: Vec<&str> = after_colon.splitn(2, " - ").collect();
@@ -372,6 +372,15 @@ fn get_shots(app: tauri::AppHandle, session_id: i64) -> std::result::Result<Vec<
     Ok(shots)
 }
 
+#[tauri::command]
+fn delete_session(app: tauri::AppHandle, session_id: i64) -> std::result::Result<(), String> {
+    let path = db_path(&app);
+    let conn = Connection::open(&path).map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM shots WHERE session_id = ?1", [session_id]).map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM sessions WHERE id = ?1", [session_id]).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg(debug_assertions)]
 #[tauri::command]
 fn wipe_db(app: tauri::AppHandle) -> std::result::Result<(), String> {
@@ -408,6 +417,7 @@ pub fn run() {
             import_sessions,
             get_sessions,
             get_shots,
+            delete_session,
             #[cfg(debug_assertions)]
             wipe_db,
         ])

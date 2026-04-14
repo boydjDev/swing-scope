@@ -1,0 +1,135 @@
+.session-list {
+  width: 200px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.empty-nav {
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--text);
+  margin: 0;
+}
+
+.sessions-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sessions-header-title {
+  font-size: 14px;
+  font-weight: 700;
+  font-family: var(--heading);
+  color: var(--text-h);
+}
+
+.date-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.date-filter-label {
+  font-size: 11px;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.session-list-items {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.session-list-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.all-sessions-item .session-player {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.session-item-wrap {
+  position: relative;
+
+  &:hover .session-delete {
+    opacity: 1;
+  }
+}
+
+.session-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+  width: 100%;
+  position: relative;
+
+  &:hover {
+    background: var(--accent-bg);
+    opacity: 1;
+  }
+
+  &.active {
+    background: var(--accent-bg);
+    border-left: 3px solid var(--accent);
+    padding-left: 13px;
+  }
+}
+
+.session-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 0 4px;
+  font-size: 10px;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+
+  &:hover {
+    color: var(--text-h);
+  }
+}
+
+.session-date {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+.session-time {
+  font-size: 11px;
+  color: var(--text);
+}
+
+.session-player {
+  font-size: 11px;
+  color: var(--text);
+}

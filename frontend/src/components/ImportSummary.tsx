@@ -1,4 +1,5 @@
 import type { ImportSummary as ImportSummaryType } from '../types'
+import '../styles/ImportSummary.css'
 
 interface ImportSummaryProps {
   summary: ImportSummaryType

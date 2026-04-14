@@ -1,4 +1,5 @@
 import type { Session, Shot } from '../types'
+import '../styles/ShotTable.css'
 
 function fmt(n: number, decimals = 1) {
   return n.toFixed(decimals)
