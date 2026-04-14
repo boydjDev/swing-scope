@@ -17,6 +17,17 @@ function sessionDateToISO(dateStr: string): string {
 }
 
 function App() {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const stored = localStorage.getItem('theme')
+    if (stored === 'light' || stored === 'dark') return stored
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  })
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
   const [sessions, setSessions] = useState<Session[]>([])
   const [selected, setSelected] = useState<Session | null>(null)
   const [allSelected, setAllSelected] = useState(false)
@@ -123,7 +134,7 @@ function App() {
 
   return (
     <div id="app">
-      <Header importing={importing} onImport={handleImport} onWipe={handleWipe} />
+      <Header importing={importing} onImport={handleImport} onWipe={handleWipe} theme={theme} onToggleTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
 
       {summary && <ImportSummaryPanel summary={summary} onDismiss={() => setSummary(null)} />}
 

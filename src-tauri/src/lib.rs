@@ -372,6 +372,76 @@ fn get_shots(app: tauri::AppHandle, session_id: i64) -> std::result::Result<Vec<
     Ok(shots)
 }
 
+#[derive(Debug, Serialize)]
+pub struct ClubStat {
+    pub club_type: String,
+    pub shot_count: i64,
+    pub avg_carry: f64,
+    pub avg_side_carry: f64,
+    pub std_side_carry: f64,
+    pub min_side_carry: f64,
+    pub max_side_carry: f64,
+}
+
+#[tauri::command]
+fn get_club_stats(app: tauri::AppHandle, session_id: Option<i64>) -> std::result::Result<Vec<ClubStat>, String> {
+    let path = db_path(&app);
+    let conn = Connection::open(&path).map_err(|e| e.to_string())?;
+
+    let rows: Vec<(String, f64, f64)> = match session_id {
+        Some(id) => {
+            let mut stmt = conn.prepare(
+                "SELECT club_type, carry_distance, side_carry FROM shots WHERE session_id = ?1"
+            ).map_err(|e| e.to_string())?;
+            let rows: Vec<_> = stmt.query_map([id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+                .map_err(|e| e.to_string())?
+                .filter_map(|r| r.ok())
+                .collect();
+            rows
+        }
+        None => {
+            let mut stmt = conn.prepare(
+                "SELECT club_type, carry_distance, side_carry FROM shots"
+            ).map_err(|e| e.to_string())?;
+            let rows: Vec<_> = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+                .map_err(|e| e.to_string())?
+                .filter_map(|r| r.ok())
+                .collect();
+            rows
+        }
+    };
+
+    // Group by club_type
+    let mut map: std::collections::HashMap<String, Vec<(f64, f64)>> = std::collections::HashMap::new();
+    for (club, carry, side) in rows {
+        map.entry(club).or_default().push((carry, side));
+    }
+
+    let mut stats: Vec<ClubStat> = map.into_iter().map(|(club_type, shots)| {
+        let count = shots.len() as i64;
+        let avg_carry = shots.iter().map(|(c, _)| c).sum::<f64>() / count as f64;
+        let avg_side = shots.iter().map(|(_, s)| s).sum::<f64>() / count as f64;
+        let variance = shots.iter().map(|(_, s)| (s - avg_side).powi(2)).sum::<f64>() / count as f64;
+        let std_side = variance.sqrt();
+        let min_side = shots.iter().map(|(_, s)| *s).fold(f64::INFINITY, f64::min);
+        let max_side = shots.iter().map(|(_, s)| *s).fold(f64::NEG_INFINITY, f64::max);
+
+        ClubStat {
+            club_type,
+            shot_count: count,
+            avg_carry,
+            avg_side_carry: avg_side,
+            std_side_carry: std_side,
+            min_side_carry: min_side,
+            max_side_carry: max_side,
+        }
+    }).collect();
+
+    stats.sort_by(|a, b| b.avg_carry.partial_cmp(&a.avg_carry).unwrap_or(std::cmp::Ordering::Equal));
+
+    Ok(stats)
+}
+
 #[tauri::command]
 fn delete_session(app: tauri::AppHandle, session_id: i64) -> std::result::Result<(), String> {
     let path = db_path(&app);
@@ -417,6 +487,7 @@ pub fn run() {
             import_sessions,
             get_sessions,
             get_shots,
+            get_club_stats,
             delete_session,
             #[cfg(debug_assertions)]
             wipe_db,

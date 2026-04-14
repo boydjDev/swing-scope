@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import '../styles/ShotScatterPlot.css'
 import {
+  ResponsiveContainer,
   ScatterChart,
   Scatter,
   XAxis,
@@ -9,8 +10,9 @@ import {
   ReferenceLine,
 } from 'recharts'
 import type { Session, Shot } from '../types'
-import { formatClubType } from '../utils/formatClubType'
 import { parseSessionDate } from '../utils/parseSessionDate'
+import { formatClubType } from '../utils/formatClubType'
+import StatsTab, { type ClubStats } from './StatsTab'
 
 interface ShotScatterPlotProps {
   selected: Session | null
@@ -22,7 +24,6 @@ interface ShotScatterPlotProps {
   sessionCount: number
 }
 
-// Raw club_type values ordered longest → shortest for color palette assignment
 const CLUB_ORDER = [
   'd',
   '1w', '2w', '3w', '4w', '5w', '6w', '7w', '9w',
@@ -32,16 +33,8 @@ const CLUB_ORDER = [
 ]
 
 const PALETTE = [
-  '#3b82f6', // blue     – driver
-  '#06b6d4', // cyan     – woods
-  '#10b981', // emerald  – hybrids
-  '#f59e0b', // amber    – long irons
-  '#f97316', // orange   – mid irons
-  '#ef4444', // red      – short irons
-  '#ec4899', // pink     – wedges
-  '#8b5cf6', // violet
-  '#84cc16', // lime
-  '#14b8a6', // teal
+  '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#f97316',
+  '#ef4444', '#ec4899', '#8b5cf6', '#84cc16', '#14b8a6',
 ]
 
 const X_DOMAIN: [number, number] = [-75, 75]
@@ -62,11 +55,15 @@ interface PlotShot {
   shot: Shot
 }
 
-// "2026-04-01" → "Apr 1, 2026", "" → "…"
 function fmtDate(iso: string): string {
   if (!iso) return '…'
   const [y, m, d] = iso.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function avg(shots: PlotShot[], fn: (s: Shot) => number): number {
+  if (!shots.length) return 0
+  return shots.reduce((sum, p) => sum + fn(p.shot), 0) / shots.length
 }
 
 export default function ShotScatterPlot({ selected, allSelected, fromDate, toDate, shots, loading, sessionCount }: ShotScatterPlotProps) {
@@ -103,10 +100,46 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
     return { byClub, clubTypes, colorMap }
   }, [shots])
 
+  const { scaleMin, scaleMax } = useMemo(() => {
+    if (clubTypes.length === 0) return { scaleMin: -1, scaleMax: 1 }
+    let min = Infinity, max = -Infinity
+    for (const club of clubTypes) {
+      const clubShots = byClub[club] ?? []
+      if (clubShots.length === 0) continue
+      const mean = clubShots.reduce((s, p) => s + p.shot.side_carry, 0) / clubShots.length
+      const std = Math.sqrt(clubShots.reduce((s, p) => s + (p.shot.side_carry - mean) ** 2, 0) / clubShots.length)
+      min = Math.min(min, mean - std)
+      max = Math.max(max, mean + std)
+    }
+    return { scaleMin: min, scaleMax: max }
+  }, [clubTypes, byClub])
+
+  const stats: ClubStats[] = useMemo(() => {
+    return clubTypes
+      .filter(c => !hidden.has(c))
+      .map(club => {
+        const clubShots = byClub[club] ?? []
+        return {
+          club,
+          count: clubShots.length,
+          avgCarry:     avg(clubShots, s => s.carry_distance),
+          avgTotal:     avg(clubShots, s => s.total_distance),
+          avgSideCarry: avg(clubShots, s => s.side_carry),
+          avgSmash:     avg(clubShots, s => s.smash_factor),
+          avgBallSpeed: avg(clubShots, s => s.ball_speed),
+          stdSideCarry: (() => {
+            const mean = avg(clubShots, s => s.side_carry)
+            const variance = clubShots.reduce((sum, p) => sum + (p.shot.side_carry - mean) ** 2, 0) / (clubShots.length || 1)
+            return Math.sqrt(variance)
+          })(),
+          minSideCarry: Math.min(...clubShots.map(p => p.shot.side_carry)),
+          maxSideCarry: Math.max(...clubShots.map(p => p.shot.side_carry)),
+        }
+      })
+  }, [clubTypes, byClub, hidden])
+
   const yDomain: [number, number] = [minCarry, maxCarry]
-  const PX_PER_YD = 3.5
-  const chartW = (X_DOMAIN[1] - X_DOMAIN[0]) * PX_PER_YD
-  const chartH = 600
+  const chartH = 750
 
   if (!selected && !allSelected) {
     return (
@@ -132,92 +165,88 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
         <span className="shot-count">{shots.length} shots</span>
       </div>
 
-      <div className="scatter-scroll">
-        <div className="club-legend">
-          <div className="club-legend-actions">
-            <button onClick={() => setHidden(new Set())}>All</button>
-            <button onClick={() => setHidden(new Set(clubTypes))}>None</button>
-          </div>
-          {clubTypes.map(club => (
-            <label key={club} className={`club-legend-item${hidden.has(club) ? ' hidden' : ''}`}>
-              <input
-                type="checkbox"
-                checked={!hidden.has(club)}
-                onChange={() => toggleClub(club)}
-              />
-              <span className="club-legend-swatch" style={{ background: colorMap[club] }} />
-              {formatClubType(club)}
-            </label>
-          ))}
-        </div>
+      <div className="scatter-body">
 
-        <div className="scatter-chart-wrap">
-          <div className="scatter-title">Shot Dispersion</div>
-          <ScatterChart
-            width={chartW}
-            height={chartH}
-            margin={{ top: 8, right: 12, bottom: 8, left: 8 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+        {/* ── Left: legend + chart ── */}
+        <div className="scatter-left">
+          <div className="scatter-scroll">
+            <div className="club-legend">
+              <div className="club-legend-actions">
+                <button onClick={() => setHidden(new Set())}>All</button>
+                <button onClick={() => setHidden(new Set(clubTypes))}>None</button>
+              </div>
+              {clubTypes.map(club => (
+                <label key={club} className={`club-legend-item${hidden.has(club) ? ' hidden' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={!hidden.has(club)}
+                    onChange={() => toggleClub(club)}
+                  />
+                  <span className="club-legend-swatch" style={{ background: colorMap[club] }} />
+                  {formatClubType(club)}
+                </label>
+              ))}
+            </div>
 
-            <XAxis
-              type="number"
-              dataKey="x"
-              domain={X_DOMAIN}
-              ticks={X_TICKS}
-              tick={{ fontSize: 11, fill: 'var(--text)', fontFamily: 'var(--mono)' }}
-              stroke="var(--border)"
-            />
-
-            <YAxis
-              type="number"
-              dataKey="y"
-              domain={yDomain}
-              tickCount={8}
-              tick={{ fontSize: 11, fill: 'var(--text)', fontFamily: 'var(--mono)' }}
-              stroke="var(--border)"
-              width={32}
-            />
-
-            <ReferenceLine x={0} stroke="var(--text)" strokeOpacity={0.25} strokeDasharray="5 4" />
-
-            {clubTypes.map(club => (
-              <Scatter
-                key={club}
-                name={club}
-                data={hidden.has(club) ? [] : byClub[club]}
-                fill={colorMap[club]}
-                fillOpacity={0.8}
-                r={5}
-              />
-            ))}
-          </ScatterChart>
-          <div className="view-controls">
-            <span className="view-controls-label">View Controls</span>
-            <label className="carry-control">
-              Min
-              <input
-                type="number"
-                value={minCarry}
-                min={0}
-                step={10}
-                onChange={e => setMinCarry(Number(e.target.value))}
-              />
-              yds
-            </label>
-            <label className="carry-control">
-              Max
-              <input
-                type="number"
-                value={maxCarry}
-                min={0}
-                step={10}
-                onChange={e => setMaxCarry(Number(e.target.value))}
-              />
-              yds
-            </label>
+            <div className="scatter-chart-wrap">
+              <div className="scatter-title">Shot Dispersion</div>
+              <ResponsiveContainer width="100%" height={chartH}>
+              <ScatterChart
+                margin={{ top: 8, right: 12, bottom: 8, left: 8 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis
+                  type="number"
+                  dataKey="x"
+                  domain={X_DOMAIN}
+                  ticks={X_TICKS}
+                  tick={{ fontSize: 11, fill: 'var(--text)', fontFamily: 'var(--mono)' }}
+                  stroke="var(--border)"
+                />
+                <YAxis
+                  type="number"
+                  dataKey="y"
+                  domain={yDomain}
+                  tickCount={8}
+                  tick={{ fontSize: 11, fill: 'var(--text)', fontFamily: 'var(--mono)' }}
+                  stroke="var(--border)"
+                  width={32}
+                />
+                <ReferenceLine x={0} stroke="var(--text)" strokeOpacity={0.25} strokeDasharray="5 4" />
+                {clubTypes.map(club => (
+                  <Scatter
+                    key={club}
+                    name={club}
+                    data={hidden.has(club) ? [] : byClub[club]}
+                    fill={colorMap[club]}
+                    fillOpacity={0.8}
+                    r={5}
+                  />
+                ))}
+              </ScatterChart>
+              </ResponsiveContainer>
+              <div className="view-controls">
+                <span className="view-controls-label">View Controls</span>
+                <label className="carry-control">
+                  Min
+                  <input type="number" value={minCarry} min={0} step={10} onChange={e => setMinCarry(Number(e.target.value))} />
+                  yds
+                </label>
+                <label className="carry-control">
+                  Max
+                  <input type="number" value={maxCarry} min={0} step={10} onChange={e => setMaxCarry(Number(e.target.value))} />
+                  yds
+                </label>
+              </div>
+            </div>
           </div>
         </div>
+
+        {/* ── Right: stats panel ── */}
+        <div className="stats-panel">
+<StatsTab stats={stats} colorMap={colorMap} scaleMin={scaleMin} scaleMax={scaleMax} />
+        </div>
+
       </div>
     </div>
   )

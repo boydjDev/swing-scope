@@ -15,8 +15,11 @@
         "title": "Swing Scope",
         "width": 1200,
         "height": 900,
+        "minWidth": 1200,
+        "minHeight": 750,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "maximized": true
       }
     ],
     "security": {

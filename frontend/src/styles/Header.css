@@ -17,3 +17,12 @@ header h1 {
   gap: 8px;
   align-items: center;
 }
+
+button.theme-toggle {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  font-size: 16px;
+  line-height: 1;
+}
