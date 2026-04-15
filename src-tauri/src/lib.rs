@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use tauri::Manager;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
+use std::io::Read;
+use sha2::{Sha256, Digest};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Shot {
@@ -29,9 +31,16 @@ pub struct Shot {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Session {
     pub id: i64,
+    pub profile_id: i64,
     pub player_name: String,
     pub date: String,
     pub source_filename: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Profile {
+    pub id: i64,
+    pub name: String,
 }
 
 
@@ -42,12 +51,29 @@ fn db_path(app: &tauri::AppHandle) -> PathBuf {
 }
 
 fn init_db(conn: &Connection) -> Result<()> {
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+
+    if version < 4 {
+        conn.execute_batch("
+            DROP TABLE IF EXISTS shots;
+            DROP TABLE IF EXISTS sessions;
+        ")?;
+        conn.execute_batch("PRAGMA user_version = 4")?;
+    }
+
     conn.execute_batch("
+        CREATE TABLE IF NOT EXISTS profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            player_name TEXT NOT NULL,
+            profile_id INTEGER NOT NULL REFERENCES profiles(id),
             date TEXT NOT NULL,
-            source_filename TEXT NOT NULL UNIQUE
+            source_filename TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            UNIQUE(profile_id, content_hash)
         );
 
         CREATE TABLE IF NOT EXISTS shots (
@@ -75,7 +101,19 @@ fn init_db(conn: &Connection) -> Result<()> {
     ")
 }
 
-fn parse_rapsodo_csv(path: &str) -> std::result::Result<(String, String, Vec<Shot>), String> {
+fn compute_file_hash(path: &str) -> std::result::Result<String, String> {
+    let mut file = File::open(path).map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = file.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 { break; }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn parse_rapsodo_csv(path: &str) -> std::result::Result<(String, Vec<Shot>), String> {
     let file = File::open(path).map_err(|e| e.to_string())?;
     let mut reader = csv::ReaderBuilder::new()
         .has_headers(false)
@@ -89,24 +127,33 @@ fn parse_rapsodo_csv(path: &str) -> std::result::Result<(String, String, Vec<Sho
         return Err("File is empty".to_string());
     }
 
-    // Validate first row is a Rapsodo header
-    let first_row = rows[0][0].trim().to_string();
-    if !first_row.starts_with("Rapsodo") {
-        return Err("Not a valid Rapsodo CSV file".to_string());
-    }
+    // Detect format from first row: Rapsodo header or direct column headers
+    let first_cell = rows[0].get(0).unwrap_or("").trim();
 
-    // Parse player name and date from first row
-    // Format: "Rapsodo <device>: firstName lastName - date time"
-    let meta: Vec<&str> = first_row.splitn(2, ':').collect();
-    let after_colon = meta.get(1).unwrap_or(&"").trim();
-    let parts: Vec<&str> = after_colon.splitn(2, " - ").collect();
-    let player_name = parts.get(0).unwrap_or(&"Unknown").trim().to_string();
-    let date = parts.get(1).unwrap_or(&"Unknown").trim().to_string();
+    let date = if first_cell.starts_with("Rapsodo") {
+        // Format: "Rapsodo MLM2PRO: Name - MM/DD/YYYY H:MM AM/PM"
+        let meta: Vec<&str> = first_cell.splitn(2, ':').collect();
+        let after_colon = meta.get(1).unwrap_or(&"").trim();
+        let parts: Vec<&str> = after_colon.splitn(2, " - ").collect();
+        parts.get(1).unwrap_or(&"").trim().to_string()
+    } else {
+        // No metadata header (Practice/Courses) — parse date from filename
+        // Filename pattern: mlm2pro_shotexport_MMDDYY.csv
+        let stem = std::path::Path::new(path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        stem.strip_prefix("mlm2pro_shotexport_")
+            .filter(|s| s.len() == 6)
+            .map(|s| format!("{}/{}/20{}", &s[0..2], &s[2..4], &s[4..6]))
+            .unwrap_or_else(|| "Unknown".to_string())
+    };
 
-    // Find the column header row
-    let header_row = rows.iter().find(|r| {
+    // Find the column header row and its index so data iteration starts exactly after it
+    let header_idx = rows.iter().position(|r| {
         r.get(0).map(|v| v.trim() == "Club Type").unwrap_or(false)
     }).ok_or("Could not find header row")?;
+    let header_row = &rows[header_idx];
 
     // Map column names to indices
     let headers: Vec<String> = header_row.iter()
@@ -141,7 +188,7 @@ fn parse_rapsodo_csv(path: &str) -> std::result::Result<(String, String, Vec<Sho
 
     let mut shots = Vec::new();
 
-    for row in &rows[1..] {
+    for row in &rows[header_idx + 1..] {
         let club_type = row.get(idx_club_type).unwrap_or("").trim();
 
         if skip.iter().any(|s| *s == club_type) {
@@ -190,7 +237,7 @@ fn parse_rapsodo_csv(path: &str) -> std::result::Result<(String, String, Vec<Sho
         return Err("No valid shot data found".to_string());
     }
 
-    Ok((player_name, date, shots))
+    Ok((date, shots))
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -216,21 +263,26 @@ pub struct ImportSummary {
     pub errors: usize,
 }
 
-fn import_one(conn: &Connection, file_path: &str) -> ImportResult {
+fn import_one(conn: &Connection, file_path: &str, profile_id: i64) -> ImportResult {
     let filename = std::path::Path::new(file_path)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("")
         .to_string();
 
-    let (player_name, date, shots) = match parse_rapsodo_csv(file_path) {
+    let content_hash = match compute_file_hash(file_path) {
+        Ok(h) => h,
+        Err(e) => return ImportResult { filename, status: ImportStatus::Error, message: e },
+    };
+
+    let (date, shots) = match parse_rapsodo_csv(file_path) {
         Ok(v) => v,
         Err(e) => return ImportResult { filename, status: ImportStatus::Error, message: e },
     };
 
     let exists: bool = match conn.query_row(
-        "SELECT COUNT(*) FROM sessions WHERE source_filename = ?1",
-        [&filename],
+        "SELECT COUNT(*) FROM sessions WHERE profile_id = ?1 AND content_hash = ?2",
+        rusqlite::params![profile_id, content_hash],
         |row| row.get::<_, i64>(0),
     ) {
         Ok(n) => n > 0,
@@ -249,8 +301,8 @@ fn import_one(conn: &Connection, file_path: &str) -> ImportResult {
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
 
         tx.execute(
-            "INSERT INTO sessions (player_name, date, source_filename) VALUES (?1, ?2, ?3)",
-            [&player_name, &date, &filename],
+            "INSERT INTO sessions (profile_id, date, source_filename, content_hash) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![profile_id, date, filename, content_hash],
         ).map_err(|e| e.to_string())?;
 
         let session_id = tx.last_insert_rowid();
@@ -294,11 +346,11 @@ fn import_one(conn: &Connection, file_path: &str) -> ImportResult {
 }
 
 #[tauri::command]
-fn import_sessions(app: tauri::AppHandle, file_paths: Vec<String>) -> std::result::Result<ImportSummary, String> {
+fn import_sessions(app: tauri::AppHandle, file_paths: Vec<String>, profile_id: i64) -> std::result::Result<ImportSummary, String> {
     let conn = Connection::open(db_path(&app)).map_err(|e| e.to_string())?;
 
     let results: Vec<ImportResult> = file_paths.iter()
-        .map(|p| import_one(&conn, p))
+        .map(|p| import_one(&conn, p, profile_id))
         .collect();
 
     let imported = results.iter().filter(|r| r.status == ImportStatus::Imported).count();
@@ -314,15 +366,18 @@ fn get_sessions(app: tauri::AppHandle) -> std::result::Result<Vec<Session>, Stri
     let conn = Connection::open(&path).map_err(|e| e.to_string())?;
 
     let mut stmt = conn.prepare(
-        "SELECT id, player_name, date, source_filename FROM sessions ORDER BY date DESC"
+        "SELECT s.id, s.profile_id, p.name, s.date, s.source_filename
+         FROM sessions s JOIN profiles p ON s.profile_id = p.id
+         ORDER BY s.date DESC"
     ).map_err(|e| e.to_string())?;
 
     let sessions = stmt.query_map([], |row| {
         Ok(Session {
             id: row.get(0)?,
-            player_name: row.get(1)?,
-            date: row.get(2)?,
-            source_filename: row.get(3)?,
+            profile_id: row.get(1)?,
+            player_name: row.get(2)?,
+            date: row.get(3)?,
+            source_filename: row.get(4)?,
         })
     }).map_err(|e| e.to_string())?
     .filter_map(|s| s.ok())
@@ -451,6 +506,28 @@ fn delete_session(app: tauri::AppHandle, session_id: i64) -> std::result::Result
     Ok(())
 }
 
+#[tauri::command]
+fn get_profiles(app: tauri::AppHandle) -> std::result::Result<Vec<Profile>, String> {
+    let conn = Connection::open(db_path(&app)).map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT id, name FROM profiles ORDER BY id ASC")
+        .map_err(|e| e.to_string())?;
+    let profiles = stmt.query_map([], |row| {
+        Ok(Profile { id: row.get(0)?, name: row.get(1)? })
+    }).map_err(|e| e.to_string())?
+    .filter_map(|p| p.ok())
+    .collect();
+    Ok(profiles)
+}
+
+#[tauri::command]
+fn add_profile(app: tauri::AppHandle, name: String) -> std::result::Result<Profile, String> {
+    let conn = Connection::open(db_path(&app)).map_err(|e| e.to_string())?;
+    conn.execute("INSERT INTO profiles (name) VALUES (?1)", [&name])
+        .map_err(|e| e.to_string())?;
+    let id = conn.last_insert_rowid();
+    Ok(Profile { id, name })
+}
+
 #[cfg(debug_assertions)]
 #[tauri::command]
 fn wipe_db(app: tauri::AppHandle) -> std::result::Result<(), String> {
@@ -489,6 +566,8 @@ pub fn run() {
             get_shots,
             get_club_stats,
             delete_session,
+            get_profiles,
+            add_profile,
             #[cfg(debug_assertions)]
             wipe_db,
         ])

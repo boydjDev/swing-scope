@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef } from 'react'
 import '../styles/ShotScatterPlot.css'
 import {
   Chart as ChartJS,
@@ -6,14 +6,16 @@ import {
   PointElement,
   Tooltip,
   type Plugin,
+  type TooltipItem,
 } from 'chart.js'
 import { Scatter } from 'react-chartjs-2'
+import zoomPlugin from 'chartjs-plugin-zoom'
 import type { Session, Shot } from '../types'
 import { parseSessionDate } from '../utils/parseSessionDate'
 import { formatClubType } from '../utils/formatClubType'
 import StatsTab, { type ClubStats } from './StatsTab'
 
-ChartJS.register(LinearScale, PointElement, Tooltip)
+ChartJS.register(LinearScale, PointElement, Tooltip, zoomPlugin)
 
 interface ShotScatterPlotProps {
   selected: Session | null
@@ -90,9 +92,8 @@ function avg(shots: PlotShot[], fn: (s: Shot) => number): number {
 }
 
 export default function ShotScatterPlot({ selected, allSelected, fromDate, toDate, shots, loading, sessionCount, theme }: ShotScatterPlotProps) {
+  const chartRef = useRef<ChartJS<'scatter'>>(null)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
-  const [minCarry, setMinCarry] = useState(0)
-  const [maxCarry, setMaxCarry] = useState(300)
 
   function toggleClub(club: string) {
     setHidden(prev => {
@@ -181,7 +182,7 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
   const chartData = {
     datasets: clubTypes.map(club => ({
       label: club,
-      data: hidden.has(club) ? [] : byClub[club].map(p => ({ x: p.x, y: p.y })),
+      data: hidden.has(club) ? [] : byClub[club].map(p => ({ x: p.x, y: p.y, shot: p.shot })),
       backgroundColor: colorMap[club] + 'cc',
       borderWidth: 0,
       pointRadius: 5,
@@ -208,8 +209,6 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
       },
       y: {
         type: 'linear' as const,
-        min: minCarry,
-        max: maxCarry,
         ticks: {
           count: 8,
           color: textColor,
@@ -221,9 +220,46 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
     },
     plugins: {
       legend: { display: false },
-      tooltip: { enabled: false },
+      tooltip: {
+        callbacks: {
+          title(items: TooltipItem<'scatter'>[]) {
+            const s = (items[0].raw as { shot: Shot }).shot
+            const parts = [formatClubType(s.club_type)]
+            if (s.club_brand) parts.push(s.club_brand)
+            if (s.club_model) parts.push(s.club_model)
+            return parts.join(' · ')
+          },
+          label(item: TooltipItem<'scatter'>) {
+            const s = (item.raw as { shot: Shot }).shot
+            return [
+              `Carry:       ${s.carry_distance.toFixed(1)} yds`,
+              `Total:       ${s.total_distance.toFixed(1)} yds`,
+              `Ball Speed:  ${s.ball_speed.toFixed(1)} mph`,
+              `Club Speed:  ${s.club_speed.toFixed(1)} mph`,
+              `Smash:       ${s.smash_factor.toFixed(2)}`,
+              `Launch:      ${s.launch_angle.toFixed(1)}°`,
+              `Direction:   ${s.launch_direction.toFixed(1)}°`,
+              `Apex:        ${s.apex.toFixed(0)} yds`,
+              `Side Carry:  ${s.side_carry.toFixed(1)} yds`,
+              `Descent:     ${s.descent_angle.toFixed(1)}°`,
+              `Attack:      ${s.attack_angle.toFixed(1)}°`,
+              `Club Path:   ${s.club_path.toFixed(1)}°`,
+              `Spin:        ${Math.round(s.spin_rate)} rpm`,
+              `Spin Axis:   ${s.spin_axis.toFixed(1)}°`,
+            ]
+          },
+        },
+        bodyFont: { family: MONO, size: 12 },
+        titleFont: { family: MONO, size: 13 },
+        padding: 10,
+        displayColors: false,
+      },
+      zoom: {
+        pan: { enabled: true, mode: 'xy' as const },
+        zoom: { wheel: { enabled: true }, pinch: { enabled: false }, mode: 'xy' as const },
+      },
     },
-    events: [],
+    events: ['click', 'mousemove', 'mousedown', 'mouseup', 'wheel'] as (keyof HTMLElementEventMap)[],
   }
 
   return (
@@ -265,20 +301,10 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
             <div className="scatter-chart-wrap">
               <div className="scatter-title">Shot Dispersion</div>
               <div style={{ flex: 1, minHeight: 400 }}>
-                <Scatter key={theme} data={chartData} options={chartOptions} plugins={[refLinePlugin]} />
+                <Scatter key={theme} ref={chartRef} data={chartData} options={chartOptions} plugins={[refLinePlugin]} />
               </div>
-              <div className="view-controls">
-                <span className="view-controls-label">View Controls</span>
-                <label className="carry-control">
-                  Min
-                  <input type="number" value={minCarry} min={0} step={10} onChange={e => setMinCarry(Number(e.target.value))} />
-                  yds
-                </label>
-                <label className="carry-control">
-                  Max
-                  <input type="number" value={maxCarry} min={0} step={10} onChange={e => setMaxCarry(Number(e.target.value))} />
-                  yds
-                </label>
+              <div className="reset-wrap">
+                <button className="reset-zoom" onClick={() => chartRef.current?.resetZoom()}>Reset View</button>
               </div>
             </div>
           </div>

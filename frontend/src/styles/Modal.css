@@ -57,3 +57,21 @@
   color: #fff;
   font-weight: 500;
 }
+
+.modal-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: var(--sans);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  margin-bottom: 16px;
+
+  &:focus {
+    border-color: var(--accent);
+  }
+}

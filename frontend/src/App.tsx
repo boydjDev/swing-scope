@@ -4,7 +4,7 @@ import { open } from '@tauri-apps/plugin-dialog'
 import './styles/global.css'
 import './styles/Modal.css'
 
-import type { Session, Shot, ImportSummary } from './types'
+import type { Session, Shot, ImportSummary, Profile } from './types'
 import Header from './components/Header'
 import ImportSummaryPanel from './components/ImportSummary'
 import SessionList from './components/SessionList'
@@ -32,6 +32,12 @@ function App() {
     setTheme(next)
   }
 
+  const [profiles, setProfiles] = useState<Profile[]>([])
+  const [activeProfile, setActiveProfile] = useState<Profile | null>(null)
+  const [showNamePrompt, setShowNamePrompt] = useState(false)
+  const [showAddProfile, setShowAddProfile] = useState(false)
+  const [newProfileName, setNewProfileName] = useState('')
+
   const [sessions, setSessions] = useState<Session[]>([])
   const [selected, setSelected] = useState<Session | null>(null)
   const [allSelected, setAllSelected] = useState(false)
@@ -44,8 +50,66 @@ function App() {
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null)
 
   useEffect(() => {
-    loadSessions(true)
+    initProfiles()
   }, [])
+
+  async function initProfiles() {
+    try {
+      const result = await invoke<Profile[]>('get_profiles')
+      setProfiles(result)
+      if (result.length === 0) {
+        setShowNamePrompt(true)
+      } else {
+        const storedId = localStorage.getItem('activeProfileId')
+        const stored = storedId ? result.find(p => p.id === parseInt(storedId)) : null
+        const active = stored ?? result[0]
+        setActiveProfile(active)
+        loadSessions(true)
+      }
+    } catch (e) {
+      console.error('Failed to load profiles:', e)
+    }
+  }
+
+  async function handleCreateFirstProfile() {
+    const name = newProfileName.trim()
+    if (!name) return
+    try {
+      const profile = await invoke<Profile>('add_profile', { name })
+      setProfiles([profile])
+      setActiveProfile(profile)
+      localStorage.setItem('activeProfileId', profile.id.toString())
+      setShowNamePrompt(false)
+      setNewProfileName('')
+      loadSessions(true)
+    } catch (e) {
+      console.error('Failed to create profile:', e)
+    }
+  }
+
+  async function handleAddProfile() {
+    const name = newProfileName.trim()
+    if (!name) return
+    try {
+      const profile = await invoke<Profile>('add_profile', { name })
+      setProfiles(prev => [...prev, profile])
+      setActiveProfile(profile)
+      localStorage.setItem('activeProfileId', profile.id.toString())
+      setShowAddProfile(false)
+      setNewProfileName('')
+    } catch (e) {
+      console.error('Failed to add profile:', e)
+    }
+  }
+
+  function handleProfileChange(profile: Profile) {
+    setActiveProfile(profile)
+    localStorage.setItem('activeProfileId', profile.id.toString())
+    setSelected(null)
+    setAllSelected(false)
+    setShots([])
+    loadSessions()
+  }
 
   async function loadSessions(autoSelect = false) {
     try {
@@ -65,12 +129,13 @@ function App() {
 
   const filteredSessions = useMemo(() => {
     return sessions.filter(s => {
+      if (activeProfile && s.profile_id !== activeProfile.id) return false
       const iso = sessionDateToISO(s.date)
       if (fromDate && iso < fromDate) return false
       if (toDate && iso > toDate) return false
       return true
     })
-  }, [sessions, fromDate, toDate])
+  }, [sessions, activeProfile, fromDate, toDate])
 
   async function handleSelectSession(session: Session) {
     setAllSelected(false)
@@ -128,7 +193,7 @@ function App() {
     setSummary(null)
 
     try {
-      const result = await invoke<ImportSummary>('import_sessions', { filePaths })
+      const result = await invoke<ImportSummary>('import_sessions', { filePaths, profileId: activeProfile!.id })
       setSummary(result)
       await loadSessions()
     } finally {
@@ -138,9 +203,63 @@ function App() {
 
   return (
     <div id="app">
-      <Header importing={importing} onImport={handleImport} onWipe={handleWipe} theme={theme} onToggleTheme={toggleTheme} />
+      <Header
+        importing={importing}
+        onImport={handleImport}
+        onWipe={handleWipe}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        profiles={profiles}
+        activeProfile={activeProfile}
+        onProfileChange={handleProfileChange}
+        onAddProfile={() => { setNewProfileName(''); setShowAddProfile(true) }}
+      />
 
       {summary && <ImportSummaryPanel summary={summary} onDismiss={() => setSummary(null)} />}
+
+      {showNamePrompt && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <p className="modal-title">Welcome to SwingScope</p>
+            <p className="modal-body">Enter your name to create your first profile.</p>
+            <input
+              className="modal-input"
+              type="text"
+              placeholder="Your name"
+              value={newProfileName}
+              onChange={e => setNewProfileName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleCreateFirstProfile()}
+              autoFocus
+            />
+            <div className="modal-actions">
+              <button className="modal-confirm" onClick={handleCreateFirstProfile} disabled={!newProfileName.trim()}>
+                Get Started
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddProfile && (
+        <div className="modal-overlay" onClick={() => setShowAddProfile(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <p className="modal-title">Add Profile</p>
+            <input
+              className="modal-input"
+              type="text"
+              placeholder="Name"
+              value={newProfileName}
+              onChange={e => setNewProfileName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAddProfile()}
+              autoFocus
+            />
+            <div className="modal-actions">
+              <button className="modal-cancel" onClick={() => setShowAddProfile(false)}>Cancel</button>
+              <button className="modal-confirm" onClick={handleAddProfile} disabled={!newProfileName.trim()}>Add</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {deleteTarget && (
         <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
