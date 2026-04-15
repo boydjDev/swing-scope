@@ -79,7 +79,7 @@ export default function ClubStatCard({ stats, color, scaleMin, scaleMax }: ClubS
         <span className="club-stat-edge-label">{sideLabel(stdMax)}</span>
       </div>
 
-      <div className="club-stat-dev">std-dev: {stdSideCarry.toFixed(1)} yds</div>
+      <div className="club-stat-dev">std-dev: ±{stdSideCarry.toFixed(1)} yds</div>
     </div>
   )
 }

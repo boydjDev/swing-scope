@@ -36,12 +36,47 @@ const CLUB_ORDER = [
   'pw', 'gw', 'aw', 'sw', 'lw',
 ]
 
+// One color per CLUB_ORDER entry — no wrapping, so colors are fixed per club type
 const PALETTE = [
-  '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
-  '#06b6d4', '#f97316', '#ec4899', '#84cc16', '#14b8a6',
-  '#6366f1', '#e11d48', '#059669', '#d97706', '#7c3aed',
-  '#0284c7', '#dc2626', '#0d9488', '#65a30d', '#db2777',
+  '#3b82f6', // d
+  '#ef4444', // 1w
+  '#10b981', // 2w
+  '#f59e0b', // 3w
+  '#8b5cf6', // 4w
+  '#06b6d4', // 5w
+  '#f97316', // 6w
+  '#ec4899', // 7w
+  '#84cc16', // 9w
+  '#14b8a6', // 1h
+  '#6366f1', // 2h
+  '#e11d48', // 3h
+  '#059669', // 4h
+  '#d97706', // 5h
+  '#7c3aed', // 6h
+  '#0284c7', // 1i
+  '#dc2626', // 2i
+  '#0d9488', // 3i
+  '#65a30d', // 4i
+  '#db2777', // 5i
+  '#2563eb', // 6i
+  '#16a34a', // 7i
+  '#ca8a04', // 8i
+  '#9333ea', // 9i
+  '#0891b2', // pw
+  '#ea580c', // gw
+  '#be185d', // aw
+  '#4f46e5', // sw
+  '#15803d', // lw
 ]
+
+function clubColor(club: string): string {
+  const idx = CLUB_ORDER.indexOf(club)
+  if (idx !== -1) return PALETTE[idx]
+  // unknown club type — hash to a palette color
+  let hash = 0
+  for (const c of club) hash = (hash * 31 + c.charCodeAt(0)) & 0xffff
+  return PALETTE[hash % PALETTE.length]
+}
 
 const X_DOMAIN: [number, number] = [-75, 75]
 const MONO = 'ui-monospace, Consolas, monospace'
@@ -114,7 +149,7 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
     })
 
     const colorMap: Record<string, string> = {}
-    clubTypes.forEach((c, i) => { colorMap[c] = PALETTE[i % PALETTE.length] })
+    clubTypes.forEach(c => { colorMap[c] = clubColor(c) })
 
     return { byClub, clubTypes, colorMap }
   }, [shots])
