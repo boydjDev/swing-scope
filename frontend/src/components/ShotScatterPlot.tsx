@@ -37,39 +37,22 @@ const CLUB_ORDER = [
   'ot',
 ]
 
-// One color per CLUB_ORDER entry — no wrapping, so colors are fixed per club type
-const PALETTE = [
-  '#3b82f6', // d
-  '#ef4444', // 1w
-  '#10b981', // 2w
-  '#f59e0b', // 3w
-  '#8b5cf6', // 4w
-  '#06b6d4', // 5w
-  '#f97316', // 6w
-  '#ec4899', // 7w
-  '#84cc16', // 9w
-  '#14b8a6', // 1h
-  '#6366f1', // 2h
-  '#e11d48', // 3h
-  '#059669', // 4h
-  '#d97706', // 5h
-  '#7c3aed', // 6h
-  '#0284c7', // 1i
-  '#dc2626', // 2i
-  '#0d9488', // 3i
-  '#65a30d', // 4i
-  '#db2777', // 5i
-  '#2563eb', // 6i
-  '#16a34a', // 7i
-  '#ca8a04', // 8i
-  '#9333ea', // 9i
-  '#0891b2', // pw
-  '#ea580c', // gw
-  '#be185d', // aw
-  '#4f46e5', // sw
-  '#15803d', // lw
-  '#78716c', // ot
-]
+function hslToHex(h: number, s: number, l: number): string {
+  s /= 100; l /= 100
+  const a = s * Math.min(l, 1 - l)
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12
+    const c = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1)
+    return Math.round(255 * c).toString(16).padStart(2, '0')
+  }
+  return `#${f(0)}${f(8)}${f(4)}`
+}
+
+// Golden-angle hue distribution — each step is 137.5° apart, guaranteeing
+// maximum perceptual separation for any number of colors.
+const PALETTE = Array.from({ length: CLUB_ORDER.length }, (_, i) =>
+  hslToHex((i * 137.508) % 360, 70, 55)
+)
 
 function clubColor(club: string): string {
   const idx = CLUB_ORDER.indexOf(club)
@@ -175,21 +158,14 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
       .filter(c => !hidden.has(c))
       .map(club => {
         const clubShots = byClub[club] ?? []
+        const mean = avg(clubShots, s => s.side_carry)
+        const variance = clubShots.reduce((sum, p) => sum + (p.shot.side_carry - mean) ** 2, 0) / (clubShots.length || 1)
         return {
           club,
           count: clubShots.length,
           avgCarry:     avg(clubShots, s => s.carry_distance),
-          avgTotal:     avg(clubShots, s => s.total_distance),
-          avgSideCarry: avg(clubShots, s => s.side_carry),
-          avgSmash:     avg(clubShots, s => s.smash_factor),
-          avgBallSpeed: avg(clubShots, s => s.ball_speed),
-          stdSideCarry: (() => {
-            const mean = avg(clubShots, s => s.side_carry)
-            const variance = clubShots.reduce((sum, p) => sum + (p.shot.side_carry - mean) ** 2, 0) / (clubShots.length || 1)
-            return Math.sqrt(variance)
-          })(),
-          minSideCarry: Math.min(...clubShots.map(p => p.shot.side_carry)),
-          maxSideCarry: Math.max(...clubShots.map(p => p.shot.side_carry)),
+          avgSideCarry: mean,
+          stdSideCarry: Math.sqrt(variance),
         }
       })
   }, [clubTypes, byClub, hidden])

@@ -35,6 +35,7 @@ pub struct Session {
     pub player_name: String,
     pub date: String,
     pub source_filename: String,
+    pub shot_count: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -366,8 +367,12 @@ fn get_sessions(app: tauri::AppHandle) -> std::result::Result<Vec<Session>, Stri
     let conn = Connection::open(&path).map_err(|e| e.to_string())?;
 
     let mut stmt = conn.prepare(
-        "SELECT s.id, s.profile_id, p.name, s.date, s.source_filename
-         FROM sessions s JOIN profiles p ON s.profile_id = p.id
+        "SELECT s.id, s.profile_id, p.name, s.date, s.source_filename,
+                COUNT(sh.id) as shot_count
+         FROM sessions s
+         JOIN profiles p ON s.profile_id = p.id
+         LEFT JOIN shots sh ON sh.session_id = s.id
+         GROUP BY s.id
          ORDER BY s.date DESC"
     ).map_err(|e| e.to_string())?;
 
@@ -378,6 +383,7 @@ fn get_sessions(app: tauri::AppHandle) -> std::result::Result<Vec<Session>, Stri
             player_name: row.get(2)?,
             date: row.get(3)?,
             source_filename: row.get(4)?,
+            shot_count: row.get(5)?,
         })
     }).map_err(|e| e.to_string())?
     .filter_map(|s| s.ok())

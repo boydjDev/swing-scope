@@ -9,6 +9,7 @@ export interface Session {
   player_name: string
   date: string
   source_filename: string
+  shot_count: number
 }
 
 export interface Shot {

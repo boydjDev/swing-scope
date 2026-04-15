@@ -2,13 +2,13 @@ import { useState, useEffect, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import './styles/global.css'
-import './styles/Modal.css'
 
 import type { Session, Shot, ImportSummary, Profile } from './types'
 import Header from './components/Header'
 import ImportSummaryPanel from './components/ImportSummary'
 import SessionList from './components/SessionList'
 import ShotScatterPlot from './components/ShotScatterPlot'
+import ConfirmDialog from './components/ConfirmDialog'
 
 // "04/01/2026 5:55 PM" → "2026-04-01" for date input comparison
 function sessionDateToISO(dateStr: string): string {
@@ -47,7 +47,7 @@ function App() {
   const [importing, setImporting] = useState(false)
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
-  const [deleteTarget, setDeleteTarget] = useState<Session | null>(null)
+  const [deleteTargets, setDeleteTargets] = useState<Session[]>([])
   const [profileDeleteTarget, setProfileDeleteTarget] = useState<Profile | null>(null)
 
   useEffect(() => {
@@ -185,9 +185,11 @@ function App() {
     }
   }
 
-  async function handleDelete(session: Session) {
-    await invoke('delete_session', { sessionId: session.id })
-    if (selected?.id === session.id) {
+  async function handleDeleteMultiple(targets: Session[]) {
+    for (const s of targets) {
+      await invoke('delete_session', { sessionId: s.id })
+    }
+    if (targets.some(s => s.id === selected?.id)) {
       setSelected(null)
       setShots([])
     }
@@ -241,77 +243,61 @@ function App() {
       {summary && <ImportSummaryPanel summary={summary} onDismiss={() => setSummary(null)} />}
 
       {showNamePrompt && (
-        <div className="modal-overlay">
-          <div className="modal">
-            <p className="modal-title">Welcome to SwingScope</p>
-            <p className="modal-body">Enter your name to create your first profile.</p>
-            <input
-              className="modal-input"
-              type="text"
-              placeholder="Your name"
-              value={newProfileName}
-              onChange={e => setNewProfileName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleCreateFirstProfile()}
-              autoFocus
-            />
-            <div className="modal-actions">
-              <button className="modal-confirm" onClick={handleCreateFirstProfile} disabled={!newProfileName.trim()}>
-                Get Started
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="Welcome to SwingScope"
+          confirmLabel="Get Started"
+          confirmDisabled={!newProfileName.trim()}
+          onConfirm={handleCreateFirstProfile}
+          input={{
+            value: newProfileName,
+            placeholder: 'Your name',
+            onChange: setNewProfileName,
+            onEnter: handleCreateFirstProfile,
+          }}
+        >
+          Enter your name to create your first profile.
+        </ConfirmDialog>
       )}
 
       {showAddProfile && (
-        <div className="modal-overlay" onClick={() => setShowAddProfile(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <p className="modal-title">Add Profile</p>
-            <input
-              className="modal-input"
-              type="text"
-              placeholder="Name"
-              value={newProfileName}
-              onChange={e => setNewProfileName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleAddProfile()}
-              autoFocus
-            />
-            <div className="modal-actions">
-              <button className="modal-cancel" onClick={() => setShowAddProfile(false)}>Cancel</button>
-              <button className="modal-confirm" onClick={handleAddProfile} disabled={!newProfileName.trim()}>Add</button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="Add Profile"
+          confirmLabel="Add"
+          confirmDisabled={!newProfileName.trim()}
+          onConfirm={handleAddProfile}
+          onCancel={() => setShowAddProfile(false)}
+          input={{
+            value: newProfileName,
+            placeholder: 'Name',
+            onChange: setNewProfileName,
+            onEnter: handleAddProfile,
+          }}
+        />
       )}
 
       {profileDeleteTarget && (
-        <div className="modal-overlay" onClick={() => setProfileDeleteTarget(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <p className="modal-title">Delete Profile</p>
-            <p className="modal-body">
-              Are you sure you want to delete <strong>{profileDeleteTarget.name}</strong>? All sessions and shots associated with this profile will also be deleted. This cannot be undone.
-            </p>
-            <div className="modal-actions">
-              <button className="modal-cancel" onClick={() => setProfileDeleteTarget(null)}>Cancel</button>
-              <button className="modal-confirm" onClick={() => { handleDeleteProfile(profileDeleteTarget); setProfileDeleteTarget(null) }}>Delete</button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="Delete Profile"
+          confirmLabel="Delete"
+          onConfirm={() => { handleDeleteProfile(profileDeleteTarget); setProfileDeleteTarget(null) }}
+          onCancel={() => setProfileDeleteTarget(null)}
+        >
+          Are you sure you want to delete <strong>{profileDeleteTarget.name}</strong>? All sessions and shots associated with this profile will also be deleted. This cannot be undone.
+        </ConfirmDialog>
       )}
 
-      {deleteTarget && (
-        <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <p className="modal-title">Delete Session</p>
-            <p className="modal-body">
-              Are you sure you want to delete <strong>{deleteTarget.player_name}</strong>'s session on <strong>{deleteTarget.date}</strong>? This cannot be undone.
-            </p>
-            <div className="modal-actions">
-              <button className="modal-cancel" onClick={() => setDeleteTarget(null)}>Cancel</button>
-              <button className="modal-confirm" onClick={() => { handleDelete(deleteTarget); setDeleteTarget(null) }}>Delete</button>
-            </div>
-          </div>
-        </div>
+      {deleteTargets.length > 0 && (
+        <ConfirmDialog
+          title={deleteTargets.length === 1 ? 'Delete Session' : `Delete ${deleteTargets.length} Sessions`}
+          confirmLabel="Delete"
+          onConfirm={() => { handleDeleteMultiple(deleteTargets); setDeleteTargets([]) }}
+          onCancel={() => setDeleteTargets([])}
+        >
+          {deleteTargets.length === 1
+            ? <>Are you sure you want to delete <strong>{deleteTargets[0].player_name}</strong>'s session on <strong>{deleteTargets[0].date}</strong>? This cannot be undone.</>
+            : <>Are you sure you want to delete <strong>{deleteTargets.length} sessions</strong>? This cannot be undone.</>
+          }
+        </ConfirmDialog>
       )}
 
       <div className="workspace">
@@ -325,7 +311,7 @@ function App() {
           onToDate={setToDate}
           onSelect={handleSelectSession}
           onSelectAll={handleSelectAll}
-          onDelete={setDeleteTarget}
+          onDeleteMultiple={setDeleteTargets}
         />
 
         <main className="shot-view">

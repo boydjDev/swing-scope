@@ -52,7 +52,7 @@
 .scatter-scroll {
   flex: 1;
   min-height: 0;
-  padding: 8px 8px 8px 0;
+  padding: 16px 20px;
   display: flex;
   flex-direction: row;
   align-items: stretch;

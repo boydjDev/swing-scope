@@ -5,13 +5,8 @@ export interface ClubStats {
   club: string
   count: number
   avgCarry: number
-  avgTotal: number
   avgSideCarry: number
-  avgSmash: number
-  avgBallSpeed: number
   stdSideCarry: number
-  minSideCarry: number
-  maxSideCarry: number
 }
 
 interface StatsTabProps {
