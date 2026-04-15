@@ -34,6 +34,7 @@ const CLUB_ORDER = [
   '1h', '2h', '3h', '4h', '5h', '6h',
   '1i', '2i', '3i', '4i', '5i', '6i', '7i', '8i', '9i',
   'pw', 'gw', 'aw', 'sw', 'lw',
+  'ot',
 ]
 
 // One color per CLUB_ORDER entry — no wrapping, so colors are fixed per club type
@@ -67,6 +68,7 @@ const PALETTE = [
   '#be185d', // aw
   '#4f46e5', // sw
   '#15803d', // lw
+  '#78716c', // ot
 ]
 
 function clubColor(club: string): string {
