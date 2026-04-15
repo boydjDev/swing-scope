@@ -48,6 +48,7 @@ function App() {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null)
+  const [profileDeleteTarget, setProfileDeleteTarget] = useState<Profile | null>(null)
 
   useEffect(() => {
     initProfiles()
@@ -99,6 +100,27 @@ function App() {
       setNewProfileName('')
     } catch (e) {
       console.error('Failed to add profile:', e)
+    }
+  }
+
+  async function handleDeleteProfile(profile: Profile) {
+    await invoke('delete_profile', { profileId: profile.id })
+    const remaining = profiles.filter(p => p.id !== profile.id)
+    setProfiles(remaining)
+    if (remaining.length === 0) {
+      setActiveProfile(null)
+      setSessions([])
+      setSelected(null)
+      setAllSelected(false)
+      setShots([])
+      setShowNamePrompt(true)
+    } else if (activeProfile?.id === profile.id) {
+      const next = remaining[0]
+      setActiveProfile(next)
+      localStorage.setItem('activeProfileId', next.id.toString())
+      loadSessions()
+    } else {
+      loadSessions()
     }
   }
 
@@ -213,6 +235,7 @@ function App() {
         activeProfile={activeProfile}
         onProfileChange={handleProfileChange}
         onAddProfile={() => { setNewProfileName(''); setShowAddProfile(true) }}
+        onDeleteProfile={p => setProfileDeleteTarget(p)}
       />
 
       {summary && <ImportSummaryPanel summary={summary} onDismiss={() => setSummary(null)} />}
@@ -256,6 +279,21 @@ function App() {
             <div className="modal-actions">
               <button className="modal-cancel" onClick={() => setShowAddProfile(false)}>Cancel</button>
               <button className="modal-confirm" onClick={handleAddProfile} disabled={!newProfileName.trim()}>Add</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {profileDeleteTarget && (
+        <div className="modal-overlay" onClick={() => setProfileDeleteTarget(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <p className="modal-title">Delete Profile</p>
+            <p className="modal-body">
+              Are you sure you want to delete <strong>{profileDeleteTarget.name}</strong>? All sessions and shots associated with this profile will also be deleted. This cannot be undone.
+            </p>
+            <div className="modal-actions">
+              <button className="modal-cancel" onClick={() => setProfileDeleteTarget(null)}>Cancel</button>
+              <button className="modal-confirm" onClick={() => { handleDeleteProfile(profileDeleteTarget); setProfileDeleteTarget(null) }}>Delete</button>
             </div>
           </div>
         </div>

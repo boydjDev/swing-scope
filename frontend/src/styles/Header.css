@@ -1,7 +1,7 @@
 header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   padding: 14px 20px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -10,12 +10,19 @@ header {
 header h1 {
   margin: 0;
   font-size: 22px;
+  text-align: center;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
 }
 
 .header-actions {
   display: flex;
   gap: 8px;
   align-items: center;
+  justify-content: flex-end;
 }
 
 button.theme-toggle {
@@ -27,29 +34,99 @@ button.theme-toggle {
   line-height: 1;
 }
 
-.profile-selector {
+.profile-pill-wrap {
+  position: relative;
+}
+
+button.profile-pill {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+  padding: 6px 14px;
+  min-width: 160px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--sans);
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+}
 
-  select {
-    padding: 6px 10px;
-    font-size: 13px;
-    font-family: var(--sans);
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--bg);
-    color: var(--text);
-    cursor: pointer;
-    outline: none;
+.profile-pill-name {
+  flex: 1;
+}
+
+.profile-pill-chevron {
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+.profile-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 160px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-dropdown-item {
+  padding: 9px 14px;
+  font-size: 13px;
+  font-family: var(--sans);
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--accent-bg);
+    opacity: 1;
+  }
+
+  &.active {
+    color: var(--accent);
+    font-weight: 600;
   }
 }
 
-button.profile-add {
-  padding: 4px 9px;
-  font-size: 16px;
-  line-height: 1;
-  background: transparent;
+.profile-dropdown-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 2px 0;
+}
+
+.profile-dropdown-add {
   color: var(--text);
-  border: 1px solid var(--border);
+  opacity: 0.7;
+}
+
+.profile-dropdown-delete-mode {
+  color: #ef4444;
+  opacity: 0.85;
+}
+
+.profile-dropdown-delete-target {
+  color: #ef4444;
+
+  &:hover {
+    background: var(--accent-bg);
+  }
+}
+
+.profile-dropdown-cancel {
+  color: var(--text);
+  opacity: 0.7;
 }

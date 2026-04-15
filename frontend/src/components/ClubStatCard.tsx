@@ -41,7 +41,7 @@ export default function ClubStatCard({ stats, color, scaleMin, scaleMax }: ClubS
           <span className="club-stat-swatch" style={{ background: color }} />
           {formatClubType(club)}
         </span>
-        <span className="club-stat-count">{count} shots</span>
+        <span className="club-stat-count" style={count < 10 ? { color: '#eab308' } : undefined}>{count} shots</span>
       </div>
 
       <div className="club-stat-carry">avg distance: {avgCarry.toFixed(1)} yds</div>

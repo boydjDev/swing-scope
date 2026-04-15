@@ -507,6 +507,24 @@ fn delete_session(app: tauri::AppHandle, session_id: i64) -> std::result::Result
 }
 
 #[tauri::command]
+fn delete_profile(app: tauri::AppHandle, profile_id: i64) -> std::result::Result<(), String> {
+    let conn = Connection::open(db_path(&app)).map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT id FROM sessions WHERE profile_id = ?1")
+        .map_err(|e| e.to_string())?;
+    let session_ids: Vec<i64> = stmt.query_map([profile_id], |row| row.get(0))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    drop(stmt);
+    for sid in session_ids {
+        conn.execute("DELETE FROM shots WHERE session_id = ?1", [sid]).map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM sessions WHERE id = ?1", [sid]).map_err(|e| e.to_string())?;
+    }
+    conn.execute("DELETE FROM profiles WHERE id = ?1", [profile_id]).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn get_profiles(app: tauri::AppHandle) -> std::result::Result<Vec<Profile>, String> {
     let conn = Connection::open(db_path(&app)).map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare("SELECT id, name FROM profiles ORDER BY id ASC")
@@ -568,6 +586,7 @@ pub fn run() {
             delete_session,
             get_profiles,
             add_profile,
+            delete_profile,
             #[cfg(debug_assertions)]
             wipe_db,
         ])
