@@ -37,20 +37,15 @@ const CLUB_ORDER = [
 ]
 
 const PALETTE = [
-  '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#f97316',
-  '#ef4444', '#ec4899', '#8b5cf6', '#84cc16', '#14b8a6',
+  '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
+  '#06b6d4', '#f97316', '#ec4899', '#84cc16', '#14b8a6',
+  '#6366f1', '#e11d48', '#059669', '#d97706', '#7c3aed',
+  '#0284c7', '#dc2626', '#0d9488', '#65a30d', '#db2777',
 ]
 
 const X_DOMAIN: [number, number] = [-75, 75]
 const MONO = 'ui-monospace, Consolas, monospace'
 
-function clubColor(clubType: string): string {
-  const idx = CLUB_ORDER.indexOf(clubType)
-  if (idx !== -1) return PALETTE[idx % PALETTE.length]
-  let hash = 0
-  for (const c of clubType) hash = (hash * 31 + c.charCodeAt(0)) & 0xffff
-  return PALETTE[hash % PALETTE.length]
-}
 
 function getCssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -119,7 +114,7 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
     })
 
     const colorMap: Record<string, string> = {}
-    clubTypes.forEach(c => { colorMap[c] = clubColor(c) })
+    clubTypes.forEach((c, i) => { colorMap[c] = PALETTE[i % PALETTE.length] })
 
     return { byClub, clubTypes, colorMap }
   }, [shots])
@@ -209,6 +204,8 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
       },
       y: {
         type: 'linear' as const,
+        min: 0,
+        suggestedMax: 275,
         ticks: {
           count: 8,
           color: textColor,
