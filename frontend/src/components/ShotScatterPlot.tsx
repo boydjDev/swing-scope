@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef } from 'react'
+import React, { useMemo, useState, useRef } from 'react'
 import '../styles/ShotScatterPlot.css'
 import {
   Chart as ChartJS,
@@ -71,6 +71,51 @@ function getCssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 }
 
+function makeDeviationPlugin(
+  statsRef: React.RefObject<ClubStats[]>,
+  colorMapRef: React.RefObject<Record<string, string>>,
+  showRef: React.RefObject<boolean>,
+): Plugin<'scatter'> {
+  return {
+    id: 'deviationLines',
+    beforeDatasetsDraw(chart) {
+      if (!showRef.current) return
+      const { ctx, scales } = chart
+      const sx = Math.abs(scales.x.getPixelForValue(1) - scales.x.getPixelForValue(0))
+      const sy = Math.abs(scales.y.getPixelForValue(1) - scales.y.getPixelForValue(0))
+      for (const s of statsRef.current ?? []) {
+        const color = (colorMapRef.current ?? {})[s.club]
+        const cx = scales.x.getPixelForValue(s.medianSideCarry)
+        const cy = scales.y.getPixelForValue(s.medianCarry)
+        // transform covariance matrix to pixel space
+        const a = s.stdSideCarry ** 2 * sx * sx
+        const c = s.stdCarry ** 2 * sy * sy
+        const b = -s.covCarry * sx * sy
+        // eigendecomposition of [[a,b],[b,c]]
+        const trace = a + c
+        const disc  = Math.sqrt(Math.max(0, ((a - c) / 2) ** 2 + b * b))
+        const semiMajor = Math.sqrt(Math.max(0, trace / 2 + disc)) * 1.8
+        const semiMinor = Math.sqrt(Math.max(0, trace / 2 - disc)) * 1.8
+        const angle = Math.atan2(2 * b, a - c) / 2
+        ctx.save()
+        ctx.strokeStyle = color
+        ctx.lineWidth = 1.5
+        ctx.globalAlpha = 0.8
+        ctx.beginPath()
+        ctx.ellipse(cx, cy, semiMajor, semiMinor, angle, 0, 2 * Math.PI)
+        ctx.stroke()
+        // centre dot
+        ctx.globalAlpha = 1
+        ctx.fillStyle = color
+        ctx.beginPath()
+        ctx.arc(cx, cy, 3, 0, 2 * Math.PI)
+        ctx.fill()
+        ctx.restore()
+      }
+    },
+  }
+}
+
 const refLinePlugin: Plugin<'scatter'> = {
   id: 'refLine',
   afterDatasetsDraw(chart) {
@@ -106,9 +151,17 @@ function avg(shots: PlotShot[], fn: (s: Shot) => number): number {
   return shots.reduce((sum, p) => sum + fn(p.shot), 0) / shots.length
 }
 
+function median(shots: PlotShot[], fn: (s: Shot) => number): number {
+  if (!shots.length) return 0
+  const sorted = shots.map(p => fn(p.shot)).sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
 export default function ShotScatterPlot({ selected, allSelected, fromDate, toDate, shots, loading, sessionCount, theme }: ShotScatterPlotProps) {
   const chartRef = useRef<ChartJS<'scatter'>>(null)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const [showEllipse, setShowEllipse] = useState(true)
 
   function toggleClub(club: string) {
     setHidden(prev => {
@@ -158,17 +211,45 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
       .filter(c => !hidden.has(c))
       .map(club => {
         const clubShots = byClub[club] ?? []
-        const mean = avg(clubShots, s => s.side_carry)
-        const variance = clubShots.reduce((sum, p) => sum + (p.shot.side_carry - mean) ** 2, 0) / (clubShots.length || 1)
+        const sideMean = avg(clubShots, s => s.side_carry)
+        const sideVariance = clubShots.reduce((sum, p) => sum + (p.shot.side_carry - sideMean) ** 2, 0) / (clubShots.length || 1)
+        const carryMean = avg(clubShots, s => s.carry_distance)
+        const carryVariance = clubShots.reduce((sum, p) => sum + (p.shot.carry_distance - carryMean) ** 2, 0) / (clubShots.length || 1)
+        const covCarry = clubShots.reduce((sum, p) => sum + (p.shot.side_carry - sideMean) * (p.shot.carry_distance - carryMean), 0) / (clubShots.length || 1)
         return {
           club,
           count: clubShots.length,
-          avgCarry:     avg(clubShots, s => s.carry_distance),
-          avgSideCarry: mean,
-          stdSideCarry: Math.sqrt(variance),
+          avgCarry:        carryMean,
+          stdCarry:        Math.sqrt(carryVariance),
+          avgSideCarry:    sideMean,
+          stdSideCarry:    Math.sqrt(sideVariance),
+          covCarry,
+          medianCarry:     median(clubShots, s => s.carry_distance),
+          medianSideCarry: median(clubShots, s => s.side_carry),
         }
       })
   }, [clubTypes, byClub, hidden])
+
+  const carryScale = useMemo(() => {
+    if (clubTypes.length === 0) return 1
+    let max = 1
+    for (const club of clubTypes) {
+      const clubShots = byClub[club] ?? []
+      if (clubShots.length === 0) continue
+      const mean = clubShots.reduce((s, p) => s + p.shot.carry_distance, 0) / clubShots.length
+      const std = Math.sqrt(clubShots.reduce((s, p) => s + (p.shot.carry_distance - mean) ** 2, 0) / clubShots.length)
+      max = Math.max(max, std)
+    }
+    return max
+  }, [clubTypes, byClub])
+
+  const statsRef    = useRef<ClubStats[]>(stats)
+  statsRef.current  = stats
+  const colorMapRef = useRef<Record<string, string>>(colorMap)
+  colorMapRef.current = colorMap
+  const showEllipseRef = useRef(showEllipse)
+  showEllipseRef.current = showEllipse
+  const deviationPlugin = useMemo(() => makeDeviationPlugin(statsRef, colorMapRef, showEllipseRef), [])
 
   if (!selected && !allSelected) {
     return (
@@ -311,9 +392,10 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
             <div className="scatter-chart-wrap">
               <div className="scatter-title">Shot Dispersion</div>
               <div style={{ flex: 1, minHeight: 400 }}>
-                <Scatter key={theme} ref={chartRef} data={chartData} options={chartOptions} plugins={[refLinePlugin]} />
+                <Scatter key={theme} ref={chartRef} data={chartData} options={chartOptions} plugins={[deviationPlugin, refLinePlugin]} />
               </div>
               <div className="reset-wrap">
+                <button className="reset-zoom" onClick={() => { setShowEllipse(v => !v); chartRef.current?.update() }}>{showEllipse ? 'Hide' : 'Show'} Ellipses</button>
                 <button className="reset-zoom" onClick={() => chartRef.current?.resetZoom()}>Reset View</button>
               </div>
             </div>
@@ -322,7 +404,7 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
 
         {/* ── Right: stats panel ── */}
         <div className="stats-panel">
-          <StatsTab stats={stats} colorMap={colorMap} scaleMin={scaleMin} scaleMax={scaleMax} />
+          <StatsTab stats={stats} colorMap={colorMap} scaleMin={scaleMin} scaleMax={scaleMax} carryScale={carryScale} />
         </div>
 
       </div>

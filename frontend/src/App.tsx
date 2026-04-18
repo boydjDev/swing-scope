@@ -19,8 +19,7 @@ function sessionDateToISO(dateStr: string): string {
 function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const stored = localStorage.getItem('theme')
-    const t = (stored === 'light' || stored === 'dark') ? stored
-      : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    const t = (stored === 'light' || stored === 'dark') ? stored : 'dark'
     document.documentElement.setAttribute('data-theme', t)
     return t
   })
