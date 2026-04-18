@@ -323,6 +323,7 @@ function App() {
             loading={loadingShots}
             sessionCount={sessions.length}
             theme={theme}
+            onShotDeleted={id => setShots(prev => prev.filter(s => s.id !== id))}
           />
         </main>
       </div>

@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useRef } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import '../styles/ShotScatterPlot.css'
 import {
   Chart as ChartJS,
@@ -6,7 +7,6 @@ import {
   PointElement,
   Tooltip,
   type Plugin,
-  type TooltipItem,
 } from 'chart.js'
 import { Scatter } from 'react-chartjs-2'
 import zoomPlugin from 'chartjs-plugin-zoom'
@@ -26,6 +26,7 @@ interface ShotScatterPlotProps {
   loading: boolean
   sessionCount: number
   theme: 'light' | 'dark'
+  onShotDeleted: (id: number) => void
 }
 
 const CLUB_ORDER = [
@@ -116,6 +117,34 @@ function makeDeviationPlugin(
   }
 }
 
+function makeHighlightPlugin(selectedRef: React.RefObject<Shot | null>): Plugin<'scatter'> {
+  return {
+    id: 'highlight',
+    afterDatasetsDraw(chart) {
+      const shot = selectedRef.current
+      if (!shot) return
+      const { ctx } = chart
+      for (let di = 0; di < chart.data.datasets.length; di++) {
+        const data = chart.data.datasets[di].data as unknown as { shot: Shot }[]
+        for (let i = 0; i < data.length; i++) {
+          if (data[i]?.shot?.id === shot.id) {
+            const pt = chart.getDatasetMeta(di).data[i]
+            if (!pt) return
+            ctx.save()
+            ctx.strokeStyle = '#fff'
+            ctx.lineWidth = 2
+            ctx.beginPath()
+            ctx.arc(pt.x, pt.y, 9, 0, 2 * Math.PI)
+            ctx.stroke()
+            ctx.restore()
+            return
+          }
+        }
+      }
+    },
+  }
+}
+
 const refLinePlugin: Plugin<'scatter'> = {
   id: 'refLine',
   afterDatasetsDraw(chart) {
@@ -158,10 +187,12 @@ function median(shots: PlotShot[], fn: (s: Shot) => number): number {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
-export default function ShotScatterPlot({ selected, allSelected, fromDate, toDate, shots, loading, sessionCount, theme }: ShotScatterPlotProps) {
+export default function ShotScatterPlot({ selected, allSelected, fromDate, toDate, shots, loading, sessionCount, theme, onShotDeleted }: ShotScatterPlotProps) {
   const chartRef = useRef<ChartJS<'scatter'>>(null)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [showEllipse, setShowEllipse] = useState(true)
+  const [selectedShot, setSelectedShot] = useState<Shot | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   function toggleClub(club: string) {
     setHidden(prev => {
@@ -251,6 +282,10 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
   showEllipseRef.current = showEllipse
   const deviationPlugin = useMemo(() => makeDeviationPlugin(statsRef, colorMapRef, showEllipseRef), [])
 
+  const selectedShotRef = useRef<Shot | null>(selectedShot)
+  selectedShotRef.current = selectedShot
+  const highlightPlugin = useMemo(() => makeHighlightPlugin(selectedShotRef), [])
+
   if (!selected && !allSelected) {
     return (
       <p className="empty">
@@ -283,6 +318,15 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
     responsive: true,
     maintainAspectRatio: false,
     animation: false as const,
+    onClick: (_: unknown, elements: { datasetIndex: number; index: number }[]) => {
+      if (elements.length > 0) {
+        const { datasetIndex, index } = elements[0]
+        const point = chartData.datasets[datasetIndex].data[index] as unknown as { shot: Shot }
+        setSelectedShot(point.shot)
+      } else {
+        setSelectedShot(null)
+      }
+    },
     scales: {
       x: {
         type: 'linear' as const,
@@ -311,40 +355,7 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
     },
     plugins: {
       legend: { display: false },
-      tooltip: {
-        callbacks: {
-          title(items: TooltipItem<'scatter'>[]) {
-            const s = (items[0].raw as { shot: Shot }).shot
-            const parts = [formatClubType(s.club_type)]
-            if (s.club_brand) parts.push(s.club_brand)
-            if (s.club_model) parts.push(s.club_model)
-            return parts.join(' · ')
-          },
-          label(item: TooltipItem<'scatter'>) {
-            const s = (item.raw as { shot: Shot }).shot
-            return [
-              `Carry:       ${s.carry_distance.toFixed(1)} yds`,
-              `Total:       ${s.total_distance.toFixed(1)} yds`,
-              `Ball Speed:  ${s.ball_speed.toFixed(1)} mph`,
-              `Club Speed:  ${s.club_speed.toFixed(1)} mph`,
-              `Smash:       ${s.smash_factor.toFixed(2)}`,
-              `Launch:      ${s.launch_angle.toFixed(1)}°`,
-              `Direction:   ${s.launch_direction.toFixed(1)}°`,
-              `Apex:        ${s.apex.toFixed(0)} yds`,
-              `Side Carry:  ${s.side_carry.toFixed(1)} yds`,
-              `Descent:     ${s.descent_angle.toFixed(1)}°`,
-              `Attack:      ${s.attack_angle.toFixed(1)}°`,
-              `Club Path:   ${s.club_path.toFixed(1)}°`,
-              `Spin:        ${Math.round(s.spin_rate)} rpm`,
-              `Spin Axis:   ${s.spin_axis.toFixed(1)}°`,
-            ]
-          },
-        },
-        bodyFont: { family: MONO, size: 12 },
-        titleFont: { family: MONO, size: 13 },
-        padding: 10,
-        displayColors: false,
-      },
+      tooltip: { enabled: false },
       zoom: {
         pan: { enabled: true, mode: 'xy' as const },
         zoom: { wheel: { enabled: true }, pinch: { enabled: false }, mode: 'xy' as const },
@@ -392,7 +403,7 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
             <div className="scatter-chart-wrap">
               <div className="scatter-title">Shot Dispersion</div>
               <div style={{ flex: 1, minHeight: 400 }}>
-                <Scatter key={theme} ref={chartRef} data={chartData} options={chartOptions} plugins={[deviationPlugin, refLinePlugin]} />
+                <Scatter key={theme} ref={chartRef} data={chartData} options={chartOptions} plugins={[deviationPlugin, highlightPlugin, refLinePlugin]} />
               </div>
               <div className="reset-wrap">
                 <button className="reset-zoom" onClick={() => { setShowEllipse(v => !v); chartRef.current?.update() }}>{showEllipse ? 'Hide' : 'Show'} Ellipses</button>
@@ -408,6 +419,45 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
         </div>
 
       </div>
+
+      {selectedShot && (
+        <div className="shot-delete-panel">
+          <button className="shot-delete-dismiss" onClick={() => { setSelectedShot(null); setConfirmDelete(false) }}>✕</button>
+          <div className="shot-delete-title">{formatClubType(selectedShot.club_type)}</div>
+          <div className="shot-delete-stats">
+            <span>Carry:      {selectedShot.carry_distance.toFixed(1)} yds</span>
+            <span>Total:      {selectedShot.total_distance.toFixed(1)} yds</span>
+            <span>Side Carry: {selectedShot.side_carry.toFixed(1)} yds</span>
+            <span>Ball Speed: {selectedShot.ball_speed.toFixed(1)} mph</span>
+            <span>Club Speed: {selectedShot.club_speed.toFixed(1)} mph</span>
+            <span>Smash:      {selectedShot.smash_factor.toFixed(2)}</span>
+            <span>Launch:     {selectedShot.launch_angle.toFixed(1)}°</span>
+            <span>Direction:  {selectedShot.launch_direction.toFixed(1)}°</span>
+            <span>Apex:       {selectedShot.apex.toFixed(0)} yds</span>
+            <span>Descent:    {selectedShot.descent_angle.toFixed(1)}°</span>
+            <span>Attack:     {selectedShot.attack_angle.toFixed(1)}°</span>
+            <span>Club Path:  {selectedShot.club_path.toFixed(1)}°</span>
+            <span>Spin:       {Math.round(selectedShot.spin_rate)} rpm</span>
+            <span>Spin Axis:  {selectedShot.spin_axis.toFixed(1)}°</span>
+          </div>
+          {confirmDelete ? (
+            <div className="shot-delete-confirm">
+              <div className="shot-delete-confirm-actions">
+                <button className="shot-delete-btn" onClick={async () => {
+                  await invoke('delete_shot', { shotId: selectedShot.id })
+                  onShotDeleted(selectedShot.id)
+                  setSelectedShot(null)
+                  setConfirmDelete(false)
+                  chartRef.current?.update()
+                }}>Confirm</button>
+                <button className="shot-delete-cancel" onClick={() => setConfirmDelete(false)}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button className="shot-delete-btn" onClick={() => setConfirmDelete(true)}>Remove Shot</button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

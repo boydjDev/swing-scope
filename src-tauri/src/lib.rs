@@ -8,6 +8,7 @@ use sha2::{Sha256, Digest};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Shot {
+    pub id: i64,
     pub club_type: String,
     pub club_brand: String,
     pub club_model: String,
@@ -213,6 +214,7 @@ fn parse_rapsodo_csv(path: &str) -> std::result::Result<(String, Vec<Shot>), Str
         };
 
         shots.push(Shot {
+            id:               0,
             club_type:        club_type.to_string(),
             club_brand:       row.get(idx_club_brand).unwrap_or("").trim().to_string(),
             club_model:       row.get(idx_club_model).unwrap_or("").trim().to_string(),
@@ -398,7 +400,7 @@ fn get_shots(app: tauri::AppHandle, session_id: i64) -> std::result::Result<Vec<
     let conn = Connection::open(&path).map_err(|e| e.to_string())?;
 
     let mut stmt = conn.prepare(
-        "SELECT club_type, club_brand, club_model, carry_distance, total_distance,
+        "SELECT id, club_type, club_brand, club_model, carry_distance, total_distance,
          ball_speed, club_speed, smash_factor, launch_angle, launch_direction,
          apex, side_carry, descent_angle, attack_angle, club_path,
          spin_rate, spin_axis, club_data_est
@@ -407,24 +409,25 @@ fn get_shots(app: tauri::AppHandle, session_id: i64) -> std::result::Result<Vec<
 
     let shots = stmt.query_map([session_id], |row| {
         Ok(Shot {
-            club_type:        row.get(0)?,
-            club_brand:       row.get(1)?,
-            club_model:       row.get(2)?,
-            carry_distance:   row.get(3)?,
-            total_distance:   row.get(4)?,
-            ball_speed:       row.get(5)?,
-            club_speed:       row.get(6)?,
-            smash_factor:     row.get(7)?,
-            launch_angle:     row.get(8)?,
-            launch_direction: row.get(9)?,
-            apex:             row.get(10)?,
-            side_carry:       row.get(11)?,
-            descent_angle:    row.get(12)?,
-            attack_angle:     row.get(13)?,
-            club_path:        row.get(14)?,
-            spin_rate:        row.get(15)?,
-            spin_axis:        row.get(16)?,
-            club_data_est:    row.get(17)?,
+            id:               row.get(0)?,
+            club_type:        row.get(1)?,
+            club_brand:       row.get(2)?,
+            club_model:       row.get(3)?,
+            carry_distance:   row.get(4)?,
+            total_distance:   row.get(5)?,
+            ball_speed:       row.get(6)?,
+            club_speed:       row.get(7)?,
+            smash_factor:     row.get(8)?,
+            launch_angle:     row.get(9)?,
+            launch_direction: row.get(10)?,
+            apex:             row.get(11)?,
+            side_carry:       row.get(12)?,
+            descent_angle:    row.get(13)?,
+            attack_angle:     row.get(14)?,
+            club_path:        row.get(15)?,
+            spin_rate:        row.get(16)?,
+            spin_axis:        row.get(17)?,
+            club_data_est:    row.get(18)?,
         })
     }).map_err(|e| e.to_string())?
     .filter_map(|s| s.ok())
@@ -501,6 +504,14 @@ fn get_club_stats(app: tauri::AppHandle, session_id: Option<i64>) -> std::result
     stats.sort_by(|a, b| b.avg_carry.partial_cmp(&a.avg_carry).unwrap_or(std::cmp::Ordering::Equal));
 
     Ok(stats)
+}
+
+#[tauri::command]
+fn delete_shot(app: tauri::AppHandle, shot_id: i64) -> std::result::Result<(), String> {
+    let path = db_path(&app);
+    let conn = Connection::open(&path).map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM shots WHERE id = ?1", [shot_id]).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -589,6 +600,7 @@ pub fn run() {
             get_sessions,
             get_shots,
             get_club_stats,
+            delete_shot,
             delete_session,
             get_profiles,
             add_profile,

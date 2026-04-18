@@ -13,6 +13,7 @@ export interface Session {
 }
 
 export interface Shot {
+  id: number
   club_type: string
   club_brand: string
   club_model: string
