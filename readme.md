@@ -1,6 +1,7 @@
 # SwingScope v0.1.0
 
-![alt text](image.png)
+<img width="1920" height="1032" alt="image" src="https://github.com/user-attachments/assets/f2dbef20-bf46-42f8-bbbe-78930dbb3244" />
+
 
 A desktop application for analyzing and visualizing Rapsodo MLM2 Pro golf simulator session data.
 
