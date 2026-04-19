@@ -25,7 +25,6 @@ interface ShotScatterPlotProps {
   shots: Shot[]
   loading: boolean
   sessionCount: number
-  theme: 'light' | 'dark'
   onShotDeleted: (id: number) => void
 }
 
@@ -106,11 +105,11 @@ function makeDeviationPlugin(
         ctx.ellipse(cx, cy, semiMajor, semiMinor, angle, 0, 2 * Math.PI)
         ctx.stroke()
         // centre dot
-        ctx.globalAlpha = 1
-        ctx.fillStyle = color
-        ctx.beginPath()
-        ctx.arc(cx, cy, 3, 0, 2 * Math.PI)
-        ctx.fill()
+        // ctx.globalAlpha = 1
+        // ctx.fillStyle = color
+        // ctx.beginPath()
+        // ctx.arc(cx, cy, 3, 0, 2 * Math.PI)
+        // ctx.fill()
         ctx.restore()
       }
     },
@@ -143,6 +142,18 @@ function makeHighlightPlugin(selectedRef: React.RefObject<Shot | null>): Plugin<
       }
     },
   }
+}
+
+const chartAreaBgPlugin: Plugin<'scatter'> = {
+  id: 'chartAreaBackground',
+  beforeDraw(chart) {
+    const { ctx, chartArea } = chart
+    if (!chartArea) return
+    ctx.save()
+    ctx.fillStyle = getCssVar('--bg-plot')
+    ctx.fillRect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top)
+    ctx.restore()
+  },
 }
 
 const refLinePlugin: Plugin<'scatter'> = {
@@ -187,7 +198,7 @@ function median(shots: PlotShot[], fn: (s: Shot) => number): number {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
-export default function ShotScatterPlot({ selected, allSelected, fromDate, toDate, shots, loading, sessionCount, theme, onShotDeleted }: ShotScatterPlotProps) {
+export default function ShotScatterPlot({ selected, allSelected, fromDate, toDate, shots, loading, sessionCount, onShotDeleted }: ShotScatterPlotProps) {
   const chartRef = useRef<ChartJS<'scatter'>>(null)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [showEllipse, setShowEllipse] = useState(true)
@@ -403,7 +414,7 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
             <div className="scatter-chart-wrap">
               <div className="scatter-title">Shot Dispersion</div>
               <div style={{ flex: 1, minHeight: 400 }}>
-                <Scatter key={theme} ref={chartRef} data={chartData} options={chartOptions} plugins={[deviationPlugin, highlightPlugin, refLinePlugin]} />
+                <Scatter ref={chartRef} data={chartData} options={chartOptions} plugins={[chartAreaBgPlugin, deviationPlugin, highlightPlugin, refLinePlugin]} />
               </div>
               <div className="reset-wrap">
                 <button className="reset-zoom" onClick={() => { setShowEllipse(v => !v); chartRef.current?.update() }}>{showEllipse ? 'Hide' : 'Show'} Ellipses</button>

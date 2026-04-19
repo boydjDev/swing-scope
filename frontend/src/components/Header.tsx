@@ -6,8 +6,6 @@ interface HeaderProps {
   importing: boolean
   onImport: () => void
   onWipe: () => void
-  theme: 'light' | 'dark'
-  onToggleTheme: () => void
   profiles: Profile[]
   activeProfile: Profile | null
   onProfileChange: (profile: Profile) => void
@@ -15,7 +13,7 @@ interface HeaderProps {
   onDeleteProfile: (profile: Profile) => void
 }
 
-export default function Header({ importing, onImport, onWipe, theme, onToggleTheme, profiles, activeProfile, onProfileChange, onAddProfile, onDeleteProfile }: HeaderProps) {
+export default function Header({ importing, onImport, onWipe, profiles, activeProfile, onProfileChange, onAddProfile, onDeleteProfile }: HeaderProps) {
   const [open, setOpen] = useState(false)
   const [deleteMode, setDeleteMode] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -92,9 +90,6 @@ export default function Header({ importing, onImport, onWipe, theme, onToggleThe
         )}
         <button onClick={onImport} disabled={importing || !activeProfile}>
           {importing ? 'Importing…' : 'Import CSV'}
-        </button>
-        <button className="theme-toggle" onClick={onToggleTheme} title="Toggle theme">
-          {theme === 'dark' ? '☀' : '☾'}
         </button>
       </div>
     </header>

@@ -17,20 +17,6 @@ function sessionDateToISO(dateStr: string): string {
 }
 
 function App() {
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const stored = localStorage.getItem('theme')
-    const t = (stored === 'light' || stored === 'dark') ? stored : 'dark'
-    document.documentElement.setAttribute('data-theme', t)
-    return t
-  })
-
-  function toggleTheme() {
-    const next = theme === 'dark' ? 'light' : 'dark'
-    document.documentElement.setAttribute('data-theme', next)
-    localStorage.setItem('theme', next)
-    setTheme(next)
-  }
-
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [activeProfile, setActiveProfile] = useState<Profile | null>(null)
   const [showNamePrompt, setShowNamePrompt] = useState(false)
@@ -230,8 +216,6 @@ function App() {
         importing={importing}
         onImport={handleImport}
         onWipe={handleWipe}
-        theme={theme}
-        onToggleTheme={toggleTheme}
         profiles={profiles}
         activeProfile={activeProfile}
         onProfileChange={handleProfileChange}
@@ -322,7 +306,6 @@ function App() {
             shots={shots}
             loading={loadingShots}
             sessionCount={sessions.length}
-            theme={theme}
             onShotDeleted={id => setShots(prev => prev.filter(s => s.id !== id))}
           />
         </main>

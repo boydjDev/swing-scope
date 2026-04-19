@@ -3,6 +3,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  background: var(--bg-main);
 }
 
 .shot-view-header {
@@ -291,6 +292,7 @@ button.reset-zoom {
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
+  background: var(--bg-stats);
   gap: 12px;
 }
 

@@ -82,6 +82,7 @@ export default function ClubStatCard({ stats, color, scaleMin, scaleMax, carrySc
             <line x1={xZero - 4} y1={yTop} x2={xZero + 4} y2={yTop} stroke="var(--text)" strokeWidth={1} strokeLinecap="round" />
             <line x1={xZero - 4} y1={yBottom} x2={xZero + 4} y2={yBottom} stroke="var(--text)" strokeWidth={1} strokeLinecap="round" />
             <text x={0} y={labelYTop} textAnchor="start" dominantBaseline="auto" fontSize={9} fill="var(--text)" fontFamily="var(--mono)">{`+${stdCarry.toFixed(1)}`}</text>
+            <text x={0} y={dynCY} textAnchor="start" dominantBaseline="middle" fontSize={9} fill={color} fontFamily="var(--mono)">{avgCarry.toFixed(1)}</text>
             <text x={0} y={labelYBottom} textAnchor="start" dominantBaseline="hanging" fontSize={9} fill="var(--text)" fontFamily="var(--mono)">{`-${stdCarry.toFixed(1)}`}</text>
 
             {/* avg side carry tick */}
