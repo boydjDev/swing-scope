@@ -1,4 +1,4 @@
-.modal-overlay {
+.dialog-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
@@ -8,7 +8,7 @@
   z-index: 1000;
 }
 
-.modal {
+.dialog {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -17,21 +17,21 @@
   box-shadow: var(--shadow);
 }
 
-.modal-title {
+.dialog-title {
   font-size: 16px;
   font-weight: 600;
   color: var(--text-h);
   margin: 0 0 10px;
 }
 
-.modal-body {
+.dialog-body {
   font-size: 13px;
   color: var(--text);
   margin: 0 0 20px;
   line-height: 1.5;
 }
 
-.modal-actions {
+.dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -46,14 +46,32 @@
   }
 }
 
-.modal-cancel {
+.dialog-cancel {
   background: none;
   color: var(--text);
 }
 
-.modal-confirm {
+.dialog-confirm {
   background: #ef4444;
   border-color: #ef4444;
   color: #fff;
   font-weight: 500;
+}
+
+.dialog-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: var(--sans);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  margin-bottom: 16px;
+
+  &:focus {
+    border-color: var(--accent);
+  }
 }
