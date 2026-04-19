@@ -2,13 +2,13 @@ import { useState, useEffect, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import './styles/global.css'
-import './styles/Modal.css'
 
-import type { Session, Shot, ImportSummary } from './types'
+import type { Session, Shot, ImportSummary, Profile } from './types'
 import Header from './components/Header'
 import ImportSummaryPanel from './components/ImportSummary'
 import SessionList from './components/SessionList'
 import ShotScatterPlot from './components/ShotScatterPlot'
+import ConfirmDialog from './components/ConfirmDialog'
 
 // "04/01/2026 5:55 PM" → "2026-04-01" for date input comparison
 function sessionDateToISO(dateStr: string): string {
@@ -32,11 +32,91 @@ function App() {
   const [importing, setImporting] = useState(false)
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
-  const [deleteTarget, setDeleteTarget] = useState<Session | null>(null)
+  const [deleteTargets, setDeleteTargets] = useState<Session[]>([])
+  const [profileDeleteTarget, setProfileDeleteTarget] = useState<Profile | null>(null)
 
   useEffect(() => {
-    loadSessions(true)
+    initProfiles()
   }, [])
+
+  async function initProfiles() {
+    try {
+      const result = await invoke<Profile[]>('get_profiles')
+      setProfiles(result)
+      if (result.length === 0) {
+        setShowNamePrompt(true)
+      } else {
+        const storedId = localStorage.getItem('activeProfileId')
+        const stored = storedId ? result.find(p => p.id === parseInt(storedId)) : null
+        const active = stored ?? result[0]
+        setActiveProfile(active)
+        loadSessions(true)
+      }
+    } catch (e) {
+      console.error('Failed to load profiles:', e)
+    }
+  }
+
+  async function handleCreateFirstProfile() {
+    const name = newProfileName.trim()
+    if (!name) return
+    try {
+      const profile = await invoke<Profile>('add_profile', { name })
+      setProfiles([profile])
+      setActiveProfile(profile)
+      localStorage.setItem('activeProfileId', profile.id.toString())
+      setShowNamePrompt(false)
+      setNewProfileName('')
+      loadSessions(true)
+    } catch (e) {
+      console.error('Failed to create profile:', e)
+    }
+  }
+
+  async function handleAddProfile() {
+    const name = newProfileName.trim()
+    if (!name) return
+    try {
+      const profile = await invoke<Profile>('add_profile', { name })
+      setProfiles(prev => [...prev, profile])
+      setActiveProfile(profile)
+      localStorage.setItem('activeProfileId', profile.id.toString())
+      setShowAddProfile(false)
+      setNewProfileName('')
+    } catch (e) {
+      console.error('Failed to add profile:', e)
+    }
+  }
+
+  async function handleDeleteProfile(profile: Profile) {
+    await invoke('delete_profile', { profileId: profile.id })
+    const remaining = profiles.filter(p => p.id !== profile.id)
+    setProfiles(remaining)
+    if (remaining.length === 0) {
+      setActiveProfile(null)
+      setSessions([])
+      setSelected(null)
+      setAllSelected(false)
+      setShots([])
+      setShowNamePrompt(true)
+    } else if (activeProfile?.id === profile.id) {
+      const next = remaining[0]
+      setActiveProfile(next)
+      localStorage.setItem('activeProfileId', next.id.toString())
+      loadSessions()
+    } else {
+      loadSessions()
+    }
+  }
+
+  function handleProfileChange(profile: Profile) {
+    setActiveProfile(profile)
+    localStorage.setItem('activeProfileId', profile.id.toString())
+    setSelected(null)
+    setAllSelected(false)
+    setShots([])
+    loadSessions()
+  }
 
   async function loadSessions(autoSelect = false) {
     try {
@@ -56,12 +136,13 @@ function App() {
 
   const filteredSessions = useMemo(() => {
     return sessions.filter(s => {
+      if (activeProfile && s.profile_id !== activeProfile.id) return false
       const iso = sessionDateToISO(s.date)
       if (fromDate && iso < fromDate) return false
       if (toDate && iso > toDate) return false
       return true
     })
-  }, [sessions, fromDate, toDate])
+  }, [sessions, activeProfile, fromDate, toDate])
 
   async function handleSelectSession(session: Session) {
     setAllSelected(false)
@@ -89,9 +170,11 @@ function App() {
     }
   }
 
-  async function handleDelete(session: Session) {
-    await invoke('delete_session', { sessionId: session.id })
-    if (selected?.id === session.id) {
+  async function handleDeleteMultiple(targets: Session[]) {
+    for (const s of targets) {
+      await invoke('delete_session', { sessionId: s.id })
+    }
+    if (targets.some(s => s.id === selected?.id)) {
       setSelected(null)
       setShots([])
     }
@@ -119,7 +202,7 @@ function App() {
     setSummary(null)
 
     try {
-      const result = await invoke<ImportSummary>('import_sessions', { filePaths })
+      const result = await invoke<ImportSummary>('import_sessions', { filePaths, profileId: activeProfile!.id })
       setSummary(result)
       await loadSessions()
     } finally {
@@ -142,19 +225,62 @@ function App() {
 
       {summary && <ImportSummaryPanel summary={summary} onDismiss={() => setSummary(null)} />}
 
-      {deleteTarget && (
-        <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <p className="modal-title">Delete Session</p>
-            <p className="modal-body">
-              Are you sure you want to delete <strong>{deleteTarget.player_name}</strong>'s session on <strong>{deleteTarget.date}</strong>? This cannot be undone.
-            </p>
-            <div className="modal-actions">
-              <button className="modal-cancel" onClick={() => setDeleteTarget(null)}>Cancel</button>
-              <button className="modal-confirm" onClick={() => { handleDelete(deleteTarget); setDeleteTarget(null) }}>Delete</button>
-            </div>
-          </div>
-        </div>
+      {showNamePrompt && (
+        <ConfirmDialog
+          title="Welcome to SwingScope"
+          confirmLabel="Get Started"
+          confirmDisabled={!newProfileName.trim()}
+          onConfirm={handleCreateFirstProfile}
+          input={{
+            value: newProfileName,
+            placeholder: 'Your name',
+            onChange: setNewProfileName,
+            onEnter: handleCreateFirstProfile,
+          }}
+        >
+          Enter your name to create your first profile.
+        </ConfirmDialog>
+      )}
+
+      {showAddProfile && (
+        <ConfirmDialog
+          title="Add Profile"
+          confirmLabel="Add"
+          confirmDisabled={!newProfileName.trim()}
+          onConfirm={handleAddProfile}
+          onCancel={() => setShowAddProfile(false)}
+          input={{
+            value: newProfileName,
+            placeholder: 'Name',
+            onChange: setNewProfileName,
+            onEnter: handleAddProfile,
+          }}
+        />
+      )}
+
+      {profileDeleteTarget && (
+        <ConfirmDialog
+          title="Delete Profile"
+          confirmLabel="Delete"
+          onConfirm={() => { handleDeleteProfile(profileDeleteTarget); setProfileDeleteTarget(null) }}
+          onCancel={() => setProfileDeleteTarget(null)}
+        >
+          Are you sure you want to delete <strong>{profileDeleteTarget.name}</strong>? All sessions and shots associated with this profile will also be deleted. This cannot be undone.
+        </ConfirmDialog>
+      )}
+
+      {deleteTargets.length > 0 && (
+        <ConfirmDialog
+          title={deleteTargets.length === 1 ? 'Delete Session' : `Delete ${deleteTargets.length} Sessions`}
+          confirmLabel="Delete"
+          onConfirm={() => { handleDeleteMultiple(deleteTargets); setDeleteTargets([]) }}
+          onCancel={() => setDeleteTargets([])}
+        >
+          {deleteTargets.length === 1
+            ? <>Are you sure you want to delete <strong>{deleteTargets[0].player_name}</strong>'s session on <strong>{deleteTargets[0].date}</strong>? This cannot be undone.</>
+            : <>Are you sure you want to delete <strong>{deleteTargets.length} sessions</strong>? This cannot be undone.</>
+          }
+        </ConfirmDialog>
       )}
 
       <div className="workspace">
@@ -168,7 +294,7 @@ function App() {
           onToDate={setToDate}
           onSelect={handleSelectSession}
           onSelectAll={handleSelectAll}
-          onDelete={setDeleteTarget}
+          onDeleteMultiple={setDeleteTargets}
         />
 
         <main className="shot-view">
