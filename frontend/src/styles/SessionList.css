@@ -48,7 +48,7 @@
 
 .session-list-items {
   flex: 1;
-  overflow-y: overlay;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
@@ -56,6 +56,7 @@
 .session-list-divider {
   height: 1px;
   background: var(--border);
+  margin: 4px 0;
 }
 
 .all-sessions-item .session-player {
@@ -64,22 +65,11 @@
   color: var(--accent);
 }
 
-.session-list-edit-btn {
-  background: none;
-  border: none;
-  color: var(--accent);
-  font-size: 12px;
-  padding: 2px 6px;
-  cursor: pointer;
-  font-family: var(--sans);
+.session-item-wrap {
+  position: relative;
 
-  &:disabled {
-    opacity: 0.3;
-    cursor: default;
-  }
-
-  &:hover:not(:disabled) {
-    opacity: 0.75;
+  &:hover .session-delete {
+    opacity: 1;
   }
 }
 
@@ -97,6 +87,7 @@
   cursor: pointer;
   transition: background 0.15s;
   width: 100%;
+  position: relative;
 
   &:hover {
     background: var(--accent-bg);
@@ -110,86 +101,21 @@
   }
 }
 
-.session-item-check {
-  display: grid;
-  grid-template-columns: 16px 1fr;
-  align-items: start;
-  column-gap: 8px;
-  row-gap: 2px;
-  padding: 10px 16px 10px 12px;
+.session-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 0 4px;
+  font-size: 10px;
+  background: none;
+  border: none;
+  color: var(--text);
   cursor: pointer;
-  transition: background 0.15s;
-  width: 100%;
-  box-sizing: border-box;
-  border-left: 3px solid transparent;
-
-  .session-date, .session-shot-count {
-    grid-column: 2;
-  }
-
-  &::before {
-    content: '';
-    grid-column: 1;
-    grid-row: 1 / 3;
-    align-self: center;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: 1.5px solid var(--text);
-    box-sizing: border-box;
-    transition: background 0.15s, border-color 0.15s;
-  }
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
 
   &:hover {
-    background: var(--accent-bg);
-  }
-
-  &.checked {
-    background: var(--accent-bg);
-    border-left-color: var(--accent);
-
-    &::before {
-      background: var(--accent);
-      border-color: var(--accent);
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5l2.5 2.5L8 3' stroke='white' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-      background-size: 10px;
-      background-repeat: no-repeat;
-      background-position: center;
-    }
-  }
-}
-
-.session-checkbox {
-  display: none;
-}
-
-.session-list-footer {
-  border-top: 1px solid var(--border);
-  padding: 8px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.session-delete-btn {
-  width: 100%;
-  background: #ef4444;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  padding: 7px 0;
-  font-size: 13px;
-  font-family: var(--sans);
-  cursor: pointer;
-
-  &:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-
-  &:hover:not(:disabled) {
-    opacity: 0.85;
+    color: var(--text-h);
   }
 }
 
@@ -199,7 +125,12 @@
   color: var(--text-h);
 }
 
-.session-shot-count {
+.session-time {
+  font-size: 11px;
+  color: var(--text);
+}
+
+.session-player {
   font-size: 11px;
   color: var(--text);
 }
