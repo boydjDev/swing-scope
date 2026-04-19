@@ -1,11 +1,19 @@
+export interface Profile {
+  id: number
+  name: string
+}
+
 export interface Session {
   id: number
+  profile_id: number
   player_name: string
   date: string
   source_filename: string
+  shot_count: number
 }
 
 export interface Shot {
+  id: number
   club_type: string
   club_brand: string
   club_model: string

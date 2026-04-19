@@ -9,6 +9,7 @@ const WEDGE_NAMES: Record<string, string> = {
 export function formatClubType(raw: string): string {
   const s = raw.trim().toLowerCase()
   if (s === 'd') return 'Driver'
+  if (s === 'ot') return 'Other'
   if (WEDGE_NAMES[s]) return WEDGE_NAMES[s]
   const wood = s.match(/^(\d+)w$/)
   if (wood) return `${wood[1]}-Wood`

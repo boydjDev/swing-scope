@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import React, { useMemo, useState, useRef } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import '../styles/ShotScatterPlot.css'
 import {
   Chart as ChartJS,
@@ -8,12 +9,13 @@ import {
   type Plugin,
 } from 'chart.js'
 import { Scatter } from 'react-chartjs-2'
+import zoomPlugin from 'chartjs-plugin-zoom'
 import type { Session, Shot } from '../types'
 import { parseSessionDate } from '../utils/parseSessionDate'
 import { formatClubType } from '../utils/formatClubType'
 import StatsTab, { type ClubStats } from './StatsTab'
 
-ChartJS.register(LinearScale, PointElement, Tooltip)
+ChartJS.register(LinearScale, PointElement, Tooltip, zoomPlugin)
 
 interface ShotScatterPlotProps {
   selected: Session | null
@@ -32,23 +34,38 @@ const CLUB_ORDER = [
   '1h', '2h', '3h', '4h', '5h', '6h',
   '1i', '2i', '3i', '4i', '5i', '6i', '7i', '8i', '9i',
   'pw', 'gw', 'aw', 'sw', 'lw',
+  'ot',
 ]
 
-const PALETTE = [
-  '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#f97316',
-  '#ef4444', '#ec4899', '#8b5cf6', '#84cc16', '#14b8a6',
-]
+function hslToHex(h: number, s: number, l: number): string {
+  s /= 100; l /= 100
+  const a = s * Math.min(l, 1 - l)
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12
+    const c = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1)
+    return Math.round(255 * c).toString(16).padStart(2, '0')
+  }
+  return `#${f(0)}${f(8)}${f(4)}`
+}
+
+// Golden-angle hue distribution — each step is 137.5° apart, guaranteeing
+// maximum perceptual separation for any number of colors.
+const PALETTE = Array.from({ length: CLUB_ORDER.length }, (_, i) =>
+  hslToHex((i * 137.508) % 360, 70, 55)
+)
+
+function clubColor(club: string): string {
+  const idx = CLUB_ORDER.indexOf(club)
+  if (idx !== -1) return PALETTE[idx]
+  // unknown club type — hash to a palette color
+  let hash = 0
+  for (const c of club) hash = (hash * 31 + c.charCodeAt(0)) & 0xffff
+  return PALETTE[hash % PALETTE.length]
+}
 
 const X_DOMAIN: [number, number] = [-75, 75]
 const MONO = 'ui-monospace, Consolas, monospace'
 
-function clubColor(clubType: string): string {
-  const idx = CLUB_ORDER.indexOf(clubType)
-  if (idx !== -1) return PALETTE[idx % PALETTE.length]
-  let hash = 0
-  for (const c of clubType) hash = (hash * 31 + c.charCodeAt(0)) & 0xffff
-  return PALETTE[hash % PALETTE.length]
-}
 
 function getCssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -184,8 +201,9 @@ function median(shots: PlotShot[], fn: (s: Shot) => number): number {
 export default function ShotScatterPlot({ selected, allSelected, fromDate, toDate, shots, loading, sessionCount, onShotDeleted }: ShotScatterPlotProps) {
   const chartRef = useRef<ChartJS<'scatter'>>(null)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
-  const [minCarry, setMinCarry] = useState(0)
-  const [maxCarry, setMaxCarry] = useState(300)
+  const [showEllipse, setShowEllipse] = useState(true)
+  const [selectedShot, setSelectedShot] = useState<Shot | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   function toggleClub(club: string) {
     setHidden(prev => {
@@ -235,24 +253,49 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
       .filter(c => !hidden.has(c))
       .map(club => {
         const clubShots = byClub[club] ?? []
+        const sideMean = avg(clubShots, s => s.side_carry)
+        const sideVariance = clubShots.reduce((sum, p) => sum + (p.shot.side_carry - sideMean) ** 2, 0) / (clubShots.length || 1)
+        const carryMean = avg(clubShots, s => s.carry_distance)
+        const carryVariance = clubShots.reduce((sum, p) => sum + (p.shot.carry_distance - carryMean) ** 2, 0) / (clubShots.length || 1)
+        const covCarry = clubShots.reduce((sum, p) => sum + (p.shot.side_carry - sideMean) * (p.shot.carry_distance - carryMean), 0) / (clubShots.length || 1)
         return {
           club,
           count: clubShots.length,
-          avgCarry:     avg(clubShots, s => s.carry_distance),
-          avgTotal:     avg(clubShots, s => s.total_distance),
-          avgSideCarry: avg(clubShots, s => s.side_carry),
-          avgSmash:     avg(clubShots, s => s.smash_factor),
-          avgBallSpeed: avg(clubShots, s => s.ball_speed),
-          stdSideCarry: (() => {
-            const mean = avg(clubShots, s => s.side_carry)
-            const variance = clubShots.reduce((sum, p) => sum + (p.shot.side_carry - mean) ** 2, 0) / (clubShots.length || 1)
-            return Math.sqrt(variance)
-          })(),
-          minSideCarry: Math.min(...clubShots.map(p => p.shot.side_carry)),
-          maxSideCarry: Math.max(...clubShots.map(p => p.shot.side_carry)),
+          avgCarry:        carryMean,
+          stdCarry:        Math.sqrt(carryVariance),
+          avgSideCarry:    sideMean,
+          stdSideCarry:    Math.sqrt(sideVariance),
+          covCarry,
+          medianCarry:     median(clubShots, s => s.carry_distance),
+          medianSideCarry: median(clubShots, s => s.side_carry),
         }
       })
   }, [clubTypes, byClub, hidden])
+
+  const carryScale = useMemo(() => {
+    if (clubTypes.length === 0) return 1
+    let max = 1
+    for (const club of clubTypes) {
+      const clubShots = byClub[club] ?? []
+      if (clubShots.length === 0) continue
+      const mean = clubShots.reduce((s, p) => s + p.shot.carry_distance, 0) / clubShots.length
+      const std = Math.sqrt(clubShots.reduce((s, p) => s + (p.shot.carry_distance - mean) ** 2, 0) / clubShots.length)
+      max = Math.max(max, std)
+    }
+    return max
+  }, [clubTypes, byClub])
+
+  const statsRef    = useRef<ClubStats[]>(stats)
+  statsRef.current  = stats
+  const colorMapRef = useRef<Record<string, string>>(colorMap)
+  colorMapRef.current = colorMap
+  const showEllipseRef = useRef(showEllipse)
+  showEllipseRef.current = showEllipse
+  const deviationPlugin = useMemo(() => makeDeviationPlugin(statsRef, colorMapRef, showEllipseRef), [])
+
+  const selectedShotRef = useRef<Shot | null>(selectedShot)
+  selectedShotRef.current = selectedShot
+  const highlightPlugin = useMemo(() => makeHighlightPlugin(selectedShotRef), [])
 
   if (!selected && !allSelected) {
     return (
@@ -274,7 +317,7 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
   const chartData = {
     datasets: clubTypes.map(club => ({
       label: club,
-      data: hidden.has(club) ? [] : byClub[club].map(p => ({ x: p.x, y: p.y })),
+      data: hidden.has(club) ? [] : byClub[club].map(p => ({ x: p.x, y: p.y, shot: p.shot })),
       backgroundColor: colorMap[club] + 'cc',
       borderWidth: 0,
       pointRadius: 5,
@@ -286,6 +329,15 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
     responsive: true,
     maintainAspectRatio: false,
     animation: false as const,
+    onClick: (_: unknown, elements: { datasetIndex: number; index: number }[]) => {
+      if (elements.length > 0) {
+        const { datasetIndex, index } = elements[0]
+        const point = chartData.datasets[datasetIndex].data[index] as unknown as { shot: Shot }
+        setSelectedShot(point.shot)
+      } else {
+        setSelectedShot(null)
+      }
+    },
     scales: {
       x: {
         type: 'linear' as const,
@@ -301,8 +353,8 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
       },
       y: {
         type: 'linear' as const,
-        min: minCarry,
-        max: maxCarry,
+        min: 0,
+        suggestedMax: 275,
         ticks: {
           count: 8,
           color: textColor,
@@ -315,8 +367,12 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
     plugins: {
       legend: { display: false },
       tooltip: { enabled: false },
+      zoom: {
+        pan: { enabled: true, mode: 'xy' as const },
+        zoom: { wheel: { enabled: true }, pinch: { enabled: false }, mode: 'xy' as const },
+      },
     },
-    events: [],
+    events: ['click', 'mousemove', 'mousedown', 'mouseup', 'wheel'] as (keyof HTMLElementEventMap)[],
   }
 
   return (
@@ -360,18 +416,9 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
               <div style={{ flex: 1, minHeight: 400 }}>
                 <Scatter ref={chartRef} data={chartData} options={chartOptions} plugins={[chartAreaBgPlugin, deviationPlugin, highlightPlugin, refLinePlugin]} />
               </div>
-              <div className="view-controls">
-                <span className="view-controls-label">View Controls</span>
-                <label className="carry-control">
-                  Min
-                  <input type="number" value={minCarry} min={0} step={10} onChange={e => setMinCarry(Number(e.target.value))} />
-                  yds
-                </label>
-                <label className="carry-control">
-                  Max
-                  <input type="number" value={maxCarry} min={0} step={10} onChange={e => setMaxCarry(Number(e.target.value))} />
-                  yds
-                </label>
+              <div className="reset-wrap">
+                <button className="reset-zoom" onClick={() => { setShowEllipse(v => !v); chartRef.current?.update() }}>{showEllipse ? 'Hide' : 'Show'} Ellipses</button>
+                <button className="reset-zoom" onClick={() => chartRef.current?.resetZoom()}>Reset View</button>
               </div>
             </div>
           </div>
@@ -379,10 +426,49 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
 
         {/* ── Right: stats panel ── */}
         <div className="stats-panel">
-          <StatsTab stats={stats} colorMap={colorMap} scaleMin={scaleMin} scaleMax={scaleMax} />
+          <StatsTab stats={stats} colorMap={colorMap} scaleMin={scaleMin} scaleMax={scaleMax} carryScale={carryScale} />
         </div>
 
       </div>
+
+      {selectedShot && (
+        <div className="shot-delete-panel">
+          <button className="shot-delete-dismiss" onClick={() => { setSelectedShot(null); setConfirmDelete(false) }}>✕</button>
+          <div className="shot-delete-title">{formatClubType(selectedShot.club_type)}</div>
+          <div className="shot-delete-stats">
+            <span>Carry:      {selectedShot.carry_distance.toFixed(1)} yds</span>
+            <span>Total:      {selectedShot.total_distance.toFixed(1)} yds</span>
+            <span>Side Carry: {selectedShot.side_carry.toFixed(1)} yds</span>
+            <span>Ball Speed: {selectedShot.ball_speed.toFixed(1)} mph</span>
+            <span>Club Speed: {selectedShot.club_speed.toFixed(1)} mph</span>
+            <span>Smash:      {selectedShot.smash_factor.toFixed(2)}</span>
+            <span>Launch:     {selectedShot.launch_angle.toFixed(1)}°</span>
+            <span>Direction:  {selectedShot.launch_direction.toFixed(1)}°</span>
+            <span>Apex:       {selectedShot.apex.toFixed(0)} yds</span>
+            <span>Descent:    {selectedShot.descent_angle.toFixed(1)}°</span>
+            <span>Attack:     {selectedShot.attack_angle.toFixed(1)}°</span>
+            <span>Club Path:  {selectedShot.club_path.toFixed(1)}°</span>
+            <span>Spin:       {Math.round(selectedShot.spin_rate)} rpm</span>
+            <span>Spin Axis:  {selectedShot.spin_axis.toFixed(1)}°</span>
+          </div>
+          {confirmDelete ? (
+            <div className="shot-delete-confirm">
+              <div className="shot-delete-confirm-actions">
+                <button className="shot-delete-btn" onClick={async () => {
+                  await invoke('delete_shot', { shotId: selectedShot.id })
+                  onShotDeleted(selectedShot.id)
+                  setSelectedShot(null)
+                  setConfirmDelete(false)
+                  chartRef.current?.update()
+                }}>Confirm</button>
+                <button className="shot-delete-cancel" onClick={() => setConfirmDelete(false)}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button className="shot-delete-btn" onClick={() => setConfirmDelete(true)}>Remove Shot</button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
