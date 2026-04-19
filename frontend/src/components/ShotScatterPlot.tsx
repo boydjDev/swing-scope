@@ -23,7 +23,7 @@ interface ShotScatterPlotProps {
   shots: Shot[]
   loading: boolean
   sessionCount: number
-  theme: 'light' | 'dark'
+  onShotDeleted: (id: number) => void
 }
 
 const CLUB_ORDER = [
@@ -52,6 +52,91 @@ function clubColor(clubType: string): string {
 
 function getCssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+}
+
+function makeDeviationPlugin(
+  statsRef: React.RefObject<ClubStats[]>,
+  colorMapRef: React.RefObject<Record<string, string>>,
+  showRef: React.RefObject<boolean>,
+): Plugin<'scatter'> {
+  return {
+    id: 'deviationLines',
+    beforeDatasetsDraw(chart) {
+      if (!showRef.current) return
+      const { ctx, scales } = chart
+      const sx = Math.abs(scales.x.getPixelForValue(1) - scales.x.getPixelForValue(0))
+      const sy = Math.abs(scales.y.getPixelForValue(1) - scales.y.getPixelForValue(0))
+      for (const s of statsRef.current ?? []) {
+        const color = (colorMapRef.current ?? {})[s.club]
+        const cx = scales.x.getPixelForValue(s.medianSideCarry)
+        const cy = scales.y.getPixelForValue(s.medianCarry)
+        // transform covariance matrix to pixel space
+        const a = s.stdSideCarry ** 2 * sx * sx
+        const c = s.stdCarry ** 2 * sy * sy
+        const b = -s.covCarry * sx * sy
+        // eigendecomposition of [[a,b],[b,c]]
+        const trace = a + c
+        const disc  = Math.sqrt(Math.max(0, ((a - c) / 2) ** 2 + b * b))
+        const semiMajor = Math.sqrt(Math.max(0, trace / 2 + disc)) * 1.8
+        const semiMinor = Math.sqrt(Math.max(0, trace / 2 - disc)) * 1.8
+        const angle = Math.atan2(2 * b, a - c) / 2
+        ctx.save()
+        ctx.strokeStyle = color
+        ctx.lineWidth = 1.5
+        ctx.globalAlpha = 0.8
+        ctx.beginPath()
+        ctx.ellipse(cx, cy, semiMajor, semiMinor, angle, 0, 2 * Math.PI)
+        ctx.stroke()
+        // centre dot
+        // ctx.globalAlpha = 1
+        // ctx.fillStyle = color
+        // ctx.beginPath()
+        // ctx.arc(cx, cy, 3, 0, 2 * Math.PI)
+        // ctx.fill()
+        ctx.restore()
+      }
+    },
+  }
+}
+
+function makeHighlightPlugin(selectedRef: React.RefObject<Shot | null>): Plugin<'scatter'> {
+  return {
+    id: 'highlight',
+    afterDatasetsDraw(chart) {
+      const shot = selectedRef.current
+      if (!shot) return
+      const { ctx } = chart
+      for (let di = 0; di < chart.data.datasets.length; di++) {
+        const data = chart.data.datasets[di].data as unknown as { shot: Shot }[]
+        for (let i = 0; i < data.length; i++) {
+          if (data[i]?.shot?.id === shot.id) {
+            const pt = chart.getDatasetMeta(di).data[i]
+            if (!pt) return
+            ctx.save()
+            ctx.strokeStyle = '#fff'
+            ctx.lineWidth = 2
+            ctx.beginPath()
+            ctx.arc(pt.x, pt.y, 9, 0, 2 * Math.PI)
+            ctx.stroke()
+            ctx.restore()
+            return
+          }
+        }
+      }
+    },
+  }
+}
+
+const chartAreaBgPlugin: Plugin<'scatter'> = {
+  id: 'chartAreaBackground',
+  beforeDraw(chart) {
+    const { ctx, chartArea } = chart
+    if (!chartArea) return
+    ctx.save()
+    ctx.fillStyle = getCssVar('--bg-plot')
+    ctx.fillRect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top)
+    ctx.restore()
+  },
 }
 
 const refLinePlugin: Plugin<'scatter'> = {
@@ -89,7 +174,15 @@ function avg(shots: PlotShot[], fn: (s: Shot) => number): number {
   return shots.reduce((sum, p) => sum + fn(p.shot), 0) / shots.length
 }
 
-export default function ShotScatterPlot({ selected, allSelected, fromDate, toDate, shots, loading, sessionCount, theme }: ShotScatterPlotProps) {
+function median(shots: PlotShot[], fn: (s: Shot) => number): number {
+  if (!shots.length) return 0
+  const sorted = shots.map(p => fn(p.shot)).sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+export default function ShotScatterPlot({ selected, allSelected, fromDate, toDate, shots, loading, sessionCount, onShotDeleted }: ShotScatterPlotProps) {
+  const chartRef = useRef<ChartJS<'scatter'>>(null)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [minCarry, setMinCarry] = useState(0)
   const [maxCarry, setMaxCarry] = useState(300)
@@ -264,8 +357,8 @@ export default function ShotScatterPlot({ selected, allSelected, fromDate, toDat
 
             <div className="scatter-chart-wrap">
               <div className="scatter-title">Shot Dispersion</div>
-              <div style={{ height: 750 }}>
-                <Scatter key={theme} data={chartData} options={chartOptions} plugins={[refLinePlugin]} />
+              <div style={{ flex: 1, minHeight: 400 }}>
+                <Scatter ref={chartRef} data={chartData} options={chartOptions} plugins={[chartAreaBgPlugin, deviationPlugin, highlightPlugin, refLinePlugin]} />
               </div>
               <div className="view-controls">
                 <span className="view-controls-label">View Controls</span>

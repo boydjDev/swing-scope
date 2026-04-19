@@ -17,20 +17,11 @@ function sessionDateToISO(dateStr: string): string {
 }
 
 function App() {
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const stored = localStorage.getItem('theme')
-    const t = (stored === 'light' || stored === 'dark') ? stored
-      : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-    document.documentElement.setAttribute('data-theme', t)
-    return t
-  })
-
-  function toggleTheme() {
-    const next = theme === 'dark' ? 'light' : 'dark'
-    document.documentElement.setAttribute('data-theme', next)
-    localStorage.setItem('theme', next)
-    setTheme(next)
-  }
+  const [profiles, setProfiles] = useState<Profile[]>([])
+  const [activeProfile, setActiveProfile] = useState<Profile | null>(null)
+  const [showNamePrompt, setShowNamePrompt] = useState(false)
+  const [showAddProfile, setShowAddProfile] = useState(false)
+  const [newProfileName, setNewProfileName] = useState('')
 
   const [sessions, setSessions] = useState<Session[]>([])
   const [selected, setSelected] = useState<Session | null>(null)
@@ -138,7 +129,16 @@ function App() {
 
   return (
     <div id="app">
-      <Header importing={importing} onImport={handleImport} onWipe={handleWipe} theme={theme} onToggleTheme={toggleTheme} />
+      <Header
+        importing={importing}
+        onImport={handleImport}
+        onWipe={handleWipe}
+        profiles={profiles}
+        activeProfile={activeProfile}
+        onProfileChange={handleProfileChange}
+        onAddProfile={() => { setNewProfileName(''); setShowAddProfile(true) }}
+        onDeleteProfile={p => setProfileDeleteTarget(p)}
+      />
 
       {summary && <ImportSummaryPanel summary={summary} onDismiss={() => setSummary(null)} />}
 
@@ -180,7 +180,7 @@ function App() {
             shots={shots}
             loading={loadingShots}
             sessionCount={sessions.length}
-            theme={theme}
+            onShotDeleted={id => setShots(prev => prev.filter(s => s.id !== id))}
           />
         </main>
       </div>

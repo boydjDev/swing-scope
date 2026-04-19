@@ -50,23 +50,24 @@ export default function ClubStatCard({ stats, color, scaleMin, scaleMax }: ClubS
         <span className="club-stat-edge-label">{sideLabel(stdMin)}</span>
 
         <div className="club-stat-svg-wrap">
-          <svg width="100%" height={VIEW_H} viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} preserveAspectRatio="none">
-            {/* spread line */}
-            <line x1={xMin} y1={CY} x2={xMax} y2={CY} stroke="var(--text)" strokeWidth={1} />
+          <svg width="100%" height="auto" viewBox={`0 0 ${VIEW_W} ${dynViewH}`} preserveAspectRatio="xMidYMid meet">
+            {/* horizontal spread (side carry) */}
+            <line x1={xMin} y1={dynCY} x2={xMax} y2={dynCY} stroke="var(--text)" strokeWidth={1} />
+            <line x1={xMin} y1={dynCY - 4} x2={xMin} y2={dynCY + 4} stroke="var(--text)" strokeWidth={1} strokeLinecap="round" />
+            <line x1={xMax} y1={dynCY - 4} x2={xMax} y2={dynCY + 4} stroke="var(--text)" strokeWidth={1} strokeLinecap="round" />
+            <text x={labelXMin} y={dynViewH - PAD} textAnchor="middle" dominantBaseline="auto" fontSize={9} fill="var(--text)" fontFamily="var(--mono)">{sideLabel(avgSideCarry - stdSideCarry)}</text>
+            <text x={labelXMax} y={dynViewH - PAD} textAnchor="middle" dominantBaseline="auto" fontSize={9} fill="var(--text)" fontFamily="var(--mono)">{sideLabel(avgSideCarry + stdSideCarry)}</text>
 
-            {/* left cap */}
-            <line x1={xMin} y1={CY - 5} x2={xMin} y2={CY + 5} stroke="var(--text)" strokeWidth={1} strokeLinecap="round" />
+            {/* vertical spread (carry distance) */}
+            <line x1={xZero} y1={yTop} x2={xZero} y2={yBottom} stroke="var(--text)" strokeWidth={1} />
+            <line x1={xZero - 4} y1={yTop} x2={xZero + 4} y2={yTop} stroke="var(--text)" strokeWidth={1} strokeLinecap="round" />
+            <line x1={xZero - 4} y1={yBottom} x2={xZero + 4} y2={yBottom} stroke="var(--text)" strokeWidth={1} strokeLinecap="round" />
+            <text x={0} y={labelYTop} textAnchor="start" dominantBaseline="auto" fontSize={9} fill="var(--text)" fontFamily="var(--mono)">{`+${stdCarry.toFixed(1)}`}</text>
+            <text x={0} y={dynCY} textAnchor="start" dominantBaseline="middle" fontSize={9} fill={color} fontFamily="var(--mono)">{avgCarry.toFixed(1)}</text>
+            <text x={0} y={labelYBottom} textAnchor="start" dominantBaseline="hanging" fontSize={9} fill="var(--text)" fontFamily="var(--mono)">{`-${stdCarry.toFixed(1)}`}</text>
 
-            {/* right cap */}
-            <line x1={xMax} y1={CY - 5} x2={xMax} y2={CY + 5} stroke="var(--text)" strokeWidth={1} strokeLinecap="round" />
-
-            {/* zero tick */}
-            {xZero >= PAD && xZero <= VIEW_W - PAD && (
-              <line x1={xZero} y1={CY - 11} x2={xZero} y2={CY + 11} stroke="var(--text-h)" strokeWidth={0.8} strokeLinecap="round" />
-            )}
-
-            {/* avg tick */}
-            <line x1={xAvg} y1={CY - 9} x2={xAvg} y2={CY + 9} stroke={color} strokeWidth={1.5} strokeLinecap="round" />
+            {/* avg side carry tick */}
+            <line x1={xAvg} y1={dynCY - 6} x2={xAvg} y2={dynCY + 6} stroke={color} strokeWidth={1.5} strokeLinecap="round" />
           </svg>
           <span
             className="club-stat-avg-label"
