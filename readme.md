@@ -1,6 +1,6 @@
-# SwingScope
+# SwingScope v0.1.0
 
-> WORK IN PROGRESS
+![alt text](image.png)
 
 A desktop application for analyzing and visualizing Rapsodo MLM2 Pro golf simulator session data.
 
